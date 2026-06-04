@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI 合同审查</title>
+  <link rel="stylesheet" href="taskpane.css"/>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header__brand">
+      <span class="app-header__title">AI 合同审查</span>
+      <span class="app-header__subtitle">内部法务 · Word 加载项</span>
+    </div>
+    <span id="office-status" class="status-badge status-badge--loading">初始化中…</span>
+  </header>
+
+  <main class="app-main">
+    <section class="panel panel--actions">
+      <p class="panel__hint">审查当前打开的 Word 文档，结果将显示在下方卡片列表中。</p>
+      <button id="btn-start-review" class="btn btn--primary" type="button" disabled>
+        开始审查
+      </button>
+      <p id="action-message" class="panel__message" aria-live="polite"></p>
+    </section>
+
+    <section class="panel panel--results">
+      <div class="panel__head">
+        <h2 class="panel__title">审查结果</h2>
+        <span id="result-count" class="panel__count">0 条</span>
+      </div>
+      <div id="results-empty" class="empty-state">
+        <div class="empty-state__icon" aria-hidden="true">📋</div>
+        <p class="empty-state__title">暂无审查结果</p>
+        <p class="empty-state__text">点击「开始审查」后，AI 意见将按风险等级在此展示。</p>
+      </div>
+      <div id="results-list" class="results-list" hidden></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>v0.1.0 · 基础框架</span>
+  </footer>
+
+  <script src="taskpane.js"></script>
+</body>
+</html>

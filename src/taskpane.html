@@ -25,22 +25,22 @@ body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:
 
 /* ── Layout ── */
 /* ── Word Add-in layout: aside fills full width on P0 ── */
-.shell{display:grid;grid-template-columns:300px 1fr;grid-template-rows:56px 1fr;min-height:100vh;transition:grid-template-columns .25s;}
+.shell{display:grid;grid-template-columns:300px 1fr;grid-template-rows:36px 1fr;min-height:100vh;transition:grid-template-columns .25s;}
 .shell.aside-collapsed{grid-template-columns:0px 1fr;}
 .shell.p0-mode{display:block;}
 .shell.p0-mode header{display:none!important;}
 .shell.p0-mode aside{width:100%;height:100vh;max-height:100vh;overflow-y:auto!important;border-right:none;}
 .shell.p0-mode main{display:none;}
-header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 28px;background:#0f172a;border-bottom:1px solid #1e293b;height:56px;}
-.logo-img{height:26px;width:auto;}
-.logo-div{width:1px;height:20px;background:#334155;}
-.logo-text{font-size:13px;font-weight:500;color:#f1f5f9;}
+header{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:0 12px;background:#0f172a;border-bottom:1px solid #1e293b;height:36px;}
+.logo-img{height:16px;width:auto;}
+.logo-div{width:1px;height:14px;background:#334155;}
+.logo-text{font-size:10px;font-weight:500;color:#f1f5f9;}
 .logo-text em{color:#94a3b8;font-style:normal;font-weight:400;}
 .step-trail{display:flex;align-items:center;gap:0;margin-left:auto;}
-.step-pill{font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:3px 10px;color:#4b5563;transition:all .2s;}
+.step-pill{font-family:var(--mono);font-size:8px;letter-spacing:.06em;padding:2px 7px;color:#4b5563;transition:all .2s;}
 .step-pill.active{color:#fff;background:#2563eb;border-radius:3px;}
 .step-pill.done{color:#6b7280;}
-.step-sep{color:#334155;font-size:10px;padding:0 2px;}
+.step-sep{color:#334155;font-size:9px;padding:0 1px;}
 .pwrtag{position:fixed;bottom:12px;right:16px;font-family:var(--mono);font-size:9px;color:#d1d5db;text-transform:uppercase;pointer-events:none;z-index:10;}
 .hist-panel{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:none;align-items:center;justify-content:center;}
 .hist-panel.on{display:flex;}
@@ -459,12 +459,6 @@ main{display:flex;flex-direction:column;overflow:hidden;}
     <div class="ssec">
       <div class="slabel">Contract Source</div>
       <button class="upbtn done" id="UB" onclick="readFromWord()" type="button">📄 从 Word 文档读取</button>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-        <div style="flex:1;height:1px;background:var(--border);"></div>
-        <span style="font-size:11px;color:var(--ink-muted);">或</span>
-        <div style="flex:1;height:1px;background:var(--border);"></div>
-      </div>
-      <label for="FI" class="upbtn" id="UB2" style="margin-top:6px;font-size:12px;">+ 上传 PDF / DOCX</label>
       <div class="fname" id="FN"></div>
     </div>
     <button class="submt" id="GO" disabled onclick="run()">Start Review →</button>
@@ -714,7 +708,7 @@ function ld(on,msg){
 }
 
 function chk(){
-  g('GO').disabled=!((D.file||D.wordText)&&key());
+  g('GO').disabled=!(D.wordText&&key());
 }
 
 function onFile(inp){
@@ -946,34 +940,13 @@ function run(){
     });
   }
 
-  if(D.wordText){
-    /* Word 文档文本路径：直接传 contract_text，跳过文件上传 */
-    ld(true,'AI is scanning the contract...');
-    _doScan({
-      contract_type:ct, party_role:pr, output_language:ol,
-      additional_instructions:ai||'',
-      contract_text: D.wordText
-    });
-  } else {
-    /* 文件上传路径（原逻辑） */
-    ld(true,'Uploading file...');
-    var fd=new FormData(); fd.append('file',D.file); fd.append('user',D.uid);
-    var x=new XMLHttpRequest();
-    x.open('POST',base()+'/files/upload');
-    x.setRequestHeader('Authorization','Bearer '+k);
-    x.onload=function(){
-      if(x.status!==200&&x.status!==201){showErr('File Upload',x.status,x.responseText);return;}
-      D.fid=JSON.parse(x.responseText).id;
-      ld(true,'AI is scanning the contract...');
-      _doScan({
-        contract_type:ct, party_role:pr, output_language:ol,
-        additional_instructions:ai||'',
-        contract_file:{transfer_method:'local_file',upload_file_id:D.fid,type:'document'}
-      });
-    };
-    x.onerror=function(){showErr('File Upload',null,'');};
-    x.send(fd);
-  }
+  if(!D.wordText){toast('请先点击"从 Word 文档读取"');return;}
+  ld(true,'AI is scanning the contract...');
+  _doScan({
+    contract_type:ct, party_role:pr, output_language:ol,
+    additional_instructions:ai||'',
+    contract_text: D.wordText
+  });
 }
 
 function cancelRun(){
@@ -1101,8 +1074,16 @@ function parseScanResult(raw){
 function renderScan(){
   renderRiskList();
   updateScanProg();
-  /* Position cards after a brief paint delay */
   setTimeout(positionCards, 80);
+  /* Auto-highlight all clauses in Word document */
+  setTimeout(highlightAllClausesInWord, 300);
+}
+
+function highlightAllClausesInWord(){
+  if(typeof Word === 'undefined') return;
+  D.clauses.forEach(function(c){
+    if(c.original) highlightInWord(c.original, c.level||'low');
+  });
 }
 
 function renderRiskList(){
@@ -1764,23 +1745,41 @@ function selectRisk(idx){
 /* ── Word高亮联动 ── */
 function highlightInWord(text, level){
   if(typeof Word === 'undefined' || !text) return;
-  /* Map risk level to Word highlight color */
-  var colorMap = {high:'Red', mid:'Yellow', low:'Cyan', user:'Yellow'};
+  /* Use lighter highlight colors */
+  var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise', user:'Yellow'};
   var color = colorMap[level] || 'Yellow';
-  Word.run(function(context){
-    var results = context.document.body.search(text, {matchCase:false, matchWholeWord:false});
-    results.load('items');
-    return context.sync().then(function(){
-      if(results.items.length === 0) return;
-      /* Highlight first match */
-      results.items[0].font.highlightColor = color;
-      results.items[0].select();
-      return context.sync();
+
+  /* Try progressively shorter search strings for better match rate */
+  var cleaned = text.replace(/\s+/g,' ').trim();
+  var attempts = [
+    cleaned.slice(0, 80),
+    cleaned.slice(0, 50),
+    cleaned.slice(0, 35),
+    cleaned.slice(0, 20)
+  ].filter(function(s){ return s.length > 10; });
+  /* Remove duplicates */
+  attempts = attempts.filter(function(s,i,a){ return a.indexOf(s)===i; });
+
+  function trySearch(idx){
+    if(idx >= attempts.length) return;
+    var searchText = attempts[idx];
+    Word.run(function(context){
+      var results = context.document.body.search(searchText, {matchCase:false, matchWholeWord:false});
+      results.load('items');
+      return context.sync().then(function(){
+        if(results.items.length === 0){
+          trySearch(idx+1);
+          return;
+        }
+        results.items[0].font.highlightColor = color;
+        results.items[0].select();
+        return context.sync();
+      });
+    }).catch(function(){
+      trySearch(idx+1);
     });
-  }).catch(function(e){
-    /* Silently ignore if text not found */
-    console.log('Word highlight error:', e.message);
-  });
+  }
+  trySearch(0);
 }
 
 /* ══════════════════════════════════════════

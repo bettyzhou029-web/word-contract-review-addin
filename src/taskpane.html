@@ -973,62 +973,24 @@ function cancelRun(){
 ══════════════════════════════════════════ */
 function parseScanResult(raw){
   var clauses=[];
-  var contractText='';
 
+  /* Find SCAN_RESULT: marker */
   var scanIdx=raw.indexOf('SCAN_RESULT:');
-  var textIdx=raw.indexOf('CONTRACT_TEXT:');
-
   if(scanIdx!==-1){
-    /* Extract JSON after SCAN_RESULT: */
     var scanStr=raw.slice(scanIdx+12).trim();
-    /* Try direct JSON parse */
     try{ clauses=JSON.parse(scanStr).clauses||[]; }catch(e){
-      /* Try to find first { ... } block */
       var m=scanStr.match(/\{[\s\S]*\}/);
       if(m){ try{ clauses=JSON.parse(m[0]).clauses||[]; }catch(e2){
-        /* Debug: show what we got after SCAN_RESULT: */
         showErr('Parse Error',null,
-          'SCAN_RESULT: found but JSON invalid.\n\n'+
-          'Content after SCAN_RESULT: (first 400 chars):\n'+scanStr.slice(0,400)+
-          '\n\nCheck if code execution node returned an error.');
+          'SCAN_RESULT: found but JSON invalid.\n\nContent after SCAN_RESULT: (first 400 chars):\n'+scanStr.slice(0,400));
         return;
       }}
-    }
-    /* Extract contract text before SCAN_RESULT: */
-    var textPart=raw.slice(0, scanIdx).trim();
-    textPart=textPart.replace(/^(CONTRACT_TEXT:\s*)+/,'').trim();
-    /* Strip HTML tags from Word doc extraction */
-    textPart=textPart.replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#36;/g,'$').replace(/&nbsp;/g,' ');
-    contractText=textPart;
-  } else if(textIdx!==-1){
-    /* CONTRACT_TEXT present but no SCAN_RESULT — look for clauses JSON */
-    var jsonMatch=raw.match(/\{"clauses"\s*:\s*\[[\s\S]*?\]\s*\}/);
-    if(jsonMatch){
-      try{
-        var parsed=JSON.parse(jsonMatch[0]);
-        clauses=parsed.clauses||[];
-        var jStart=raw.indexOf(jsonMatch[0]);
-        contractText=raw.slice(textIdx+14, jStart).trim();
-      }catch(e){}
-    }
-    if(!clauses.length){
-      showErr('Parse Error',null,
-        'SCAN_RESULT: not found in response.\n\n'+
-        'Check Dify direct reply node:\n'+
-        'CONTRACT_TEXT:\n{{文档提取器.text}}\n\nSCAN_RESULT:\n{{代码执行.result}}\n\n'+
-        'Also check if code execution node has errors.\n\n'+
-        'Raw (first 800 chars):\n'+raw.slice(0,800));
-      return;
     }
   } else {
     /* No prefix — pure JSON fallback */
     try{
       var m2=raw.match(/\{[\s\S]*\}/);
-      if(m2){
-        var obj=JSON.parse(m2[0]);
-        clauses=obj.clauses||(obj.SCAN_RESULT&&obj.SCAN_RESULT.clauses)||[];
-        if(obj.CONTRACT_TEXT) contractText=obj.CONTRACT_TEXT;
-      }
+      if(m2){ var obj=JSON.parse(m2[0]); clauses=obj.clauses||[]; }
     }catch(e){}
     if(!clauses.length){
       showErr('Parse Error',null,'Could not parse scan result.\n\nRaw (first 600 chars):\n'+raw.slice(0,600));
@@ -1037,20 +999,15 @@ function parseScanResult(raw){
   }
 
   if(!clauses.length){
-    var rawPreview = raw ? raw.slice(0,800) : '(empty)';
-    var hasScan = raw && raw.indexOf('SCAN_RESULT:') !== -1;
-    var hasText = raw && raw.indexOf('CONTRACT_TEXT:') !== -1;
     showErr('Parse Error',null,
-      'Parsed successfully but clauses array is empty.\n\n'+
-      'Has CONTRACT_TEXT: ' + hasText + '\n'+
-      'Has SCAN_RESULT: ' + hasScan + '\n\n'+
-      'Raw response (first 800 chars):\n' + rawPreview);
+      'Parsed successfully but clauses array is empty.\n\nRaw (first 800 chars):\n'+raw.slice(0,800));
     return;
   }
 
-  /* 按原文出现顺序排列clauses */
-  if(contractText){
-    var normForSort = contractText.replace(/\s+/g,' ').toLowerCase();
+  /* Sort clauses by position in Word text */
+  var wordText = D.wordText||'';
+  if(wordText){
+    var normForSort = wordText.replace(/\s+/g,' ').toLowerCase();
     clauses.forEach(function(c){
       if(!c.original){ c._pos=999999; return; }
       var normOrig = c.original.replace(/\s+/g,' ').toLowerCase();
@@ -1060,10 +1017,9 @@ function parseScanResult(raw){
     });
     clauses.sort(function(a,b){ return a._pos - b._pos; });
   }
-  D.clauses=clauses;
-  D.contractText=contractText;
 
-  /* Left panel removed — contract text stays in Word document */
+  D.clauses=clauses;
+  D.contractText=wordText; /* use Word text as contract text */
 
   renderScan();
   goPage(1);
@@ -1745,38 +1701,41 @@ function selectRisk(idx){
 /* ── Word高亮联动 ── */
 function highlightInWord(text, level){
   if(typeof Word === 'undefined' || !text) return;
-  /* Use lighter highlight colors */
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise', user:'Yellow'};
   var color = colorMap[level] || 'Yellow';
 
-  /* Try progressively shorter search strings for better match rate */
-  var cleaned = text.replace(/\s+/g,' ').trim();
-  var attempts = [
-    cleaned.slice(0, 80),
-    cleaned.slice(0, 50),
-    cleaned.slice(0, 35),
-    cleaned.slice(0, 20)
-  ].filter(function(s){ return s.length > 10; });
-  /* Remove duplicates */
-  attempts = attempts.filter(function(s,i,a){ return a.indexOf(s)===i; });
+  /* Clean text: normalize whitespace to match Word's body.text output */
+  var cleaned = text.replace(/\s+/g, ' ').trim();
+
+  /* Try full text first, then progressively shorter prefixes */
+  var attempts = [];
+  if(cleaned.length > 0) attempts.push(cleaned);
+  if(cleaned.length > 80) attempts.push(cleaned.slice(0, 80));
+  if(cleaned.length > 50) attempts.push(cleaned.slice(0, 50));
+  if(cleaned.length > 25) attempts.push(cleaned.slice(0, 25));
+  /* Deduplicate */
+  attempts = attempts.filter(function(s, i, a){ return a.indexOf(s) === i; });
 
   function trySearch(idx){
     if(idx >= attempts.length) return;
-    var searchText = attempts[idx];
     Word.run(function(context){
-      var results = context.document.body.search(searchText, {matchCase:false, matchWholeWord:false});
+      var results = context.document.body.search(attempts[idx], {matchCase:false, matchWholeWord:false});
       results.load('items');
       return context.sync().then(function(){
         if(results.items.length === 0){
-          trySearch(idx+1);
+          trySearch(idx + 1);
           return;
         }
-        results.items[0].font.highlightColor = color;
+        /* Found — highlight all matching items */
+        results.items.forEach(function(item){
+          item.font.highlightColor = color;
+        });
+        /* Scroll to first match */
         results.items[0].select();
         return context.sync();
       });
     }).catch(function(){
-      trySearch(idx+1);
+      trySearch(idx + 1);
     });
   }
   trySearch(0);

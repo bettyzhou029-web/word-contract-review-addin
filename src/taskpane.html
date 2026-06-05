@@ -844,11 +844,13 @@ function readFromWord(){
 
   Word.run(function(context){
     var body = context.document.body;
+    var paragraphs = body.paragraphs;
     body.load('text');
+    paragraphs.load('items');
     return context.sync().then(function(){
       var text = body.text;
       if(!text || text.trim().length < 50){
-        toast('文档内容太少，请确认 Word 文档已打开并有内容');
+        g('FN').textContent = '❌ 文档内容太少';
         btn.textContent = '📄 从 Word 文档读取';
         btn.disabled = false;
         return;
@@ -856,11 +858,15 @@ function readFromWord(){
       D.wordText = text;
       D.file = null; D.fid = null;
       D.fileName = '当前Word文档';
-      g('FN').textContent = '✓ 已读取 ' + text.length + ' 字符';
+      /* Store paragraph texts for precise range highlighting */
+      D.wordParas = paragraphs.items.map(function(p){
+        return p.text.replace(/\r/g,'').trim();
+      });
+      g('FN').textContent = '✓ 已读取 ' + text.length + ' 字符 / ' + D.wordParas.length + ' 段落';
       btn.textContent = '✓ 重新读取';
       btn.disabled = false;
       g('GO').disabled = !key();
-      toast('文档读取成功，共 ' + text.length + ' 字符');
+      toast('文档读取成功');
     });
   }).catch(function(e){
     var msg = e.message || String(e);
@@ -1703,79 +1709,51 @@ function highlightInWord(text, level){
   if(typeof Word === 'undefined' || !text) return;
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise', user:'Yellow'};
   var color = colorMap[level] || 'Yellow';
+  var cleaned = text.replace(/\s+/g,' ').trim();
+  if(!cleaned) return;
 
-  var cleaned = text.replace(/\s+/g, ' ').trim();
-  if(cleaned.length === 0) return;
+  /* ── Paragraph-based: find start para and end para, highlight the range ── */
+  if(D.wordParas && D.wordParas.length){
+    var startSnip = cleaned.slice(0,30).toLowerCase();
+    var endSnip   = cleaned.slice(-30).toLowerCase();
+    var startIdx = -1, endIdx = -1;
 
-  /* For short text, just search directly */
-  if(cleaned.length <= 40){
-    Word.run(function(context){
-      var results = context.document.body.search(cleaned, {matchCase:false, matchWholeWord:false});
-      results.load('items');
-      return context.sync().then(function(){
-        if(!results.items.length) return;
-        results.items[0].font.highlightColor = color;
-        results.items[0].select();
-        return context.sync();
-      });
-    }).catch(function(){});
-    return;
-  }
-
-  /* For longer text: search start + end, merge into one range */
-  var startSnip = cleaned.slice(0, 30);
-  var endSnip   = cleaned.slice(-30);
-
-  Word.run(function(context){
-    var startResults = context.document.body.search(startSnip, {matchCase:false, matchWholeWord:false});
-    var endResults   = context.document.body.search(endSnip,   {matchCase:false, matchWholeWord:false});
-    startResults.load('items');
-    endResults.load('items');
-    return context.sync().then(function(){
-      if(!startResults.items.length) return;
-
-      var startRange = startResults.items[0];
-
-      /* If end snip found and different from start, merge the two ranges */
-      if(endResults.items.length > 0){
-        /* Pick the end result that comes after the start result */
-        var endRange = null;
-        for(var i=0; i<endResults.items.length; i++){
-          /* Use expandTo to check order — just pick last occurrence as fallback */
-          endRange = endResults.items[i];
-        }
-        try{
-          var merged = startRange.getRange('Start').expandTo(endRange.getRange('End'));
+    for(var i=0; i<D.wordParas.length; i++){
+      var pl = D.wordParas[i].toLowerCase();
+      if(startIdx === -1 && pl.indexOf(startSnip) >= 0) startIdx = i;
+      if(pl.indexOf(endSnip) >= 0) endIdx = i;
+    }
+    if(startIdx >= 0){
+      if(endIdx < startIdx) endIdx = startIdx;
+      Word.run(function(context){
+        var paras = context.document.body.paragraphs;
+        paras.load('items');
+        return context.sync().then(function(){
+          var si = Math.min(startIdx, paras.items.length-1);
+          var ei = Math.min(endIdx,   paras.items.length-1);
+          var merged = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
           merged.font.highlightColor = color;
           merged.select();
           return context.sync();
-        } catch(e){
-          /* fallback: just highlight start */
-          startRange.font.highlightColor = color;
-          startRange.select();
-          return context.sync();
-        }
-      } else {
-        /* End not found — highlight start only */
-        startRange.font.highlightColor = color;
-        startRange.select();
-        return context.sync();
-      }
+        });
+      }).catch(function(){});
+      return;
+    }
+  }
+
+  /* ── Fallback: text search ── */
+  Word.run(function(context){
+    var r = context.document.body.search(cleaned.slice(0,60), {matchCase:false, matchWholeWord:false});
+    r.load('items');
+    return context.sync().then(function(){
+      if(!r.items.length) return;
+      r.items[0].font.highlightColor = color;
+      r.items[0].select();
+      return context.sync();
     });
-  }).catch(function(e){
-    /* Final fallback: try first 50 chars */
-    Word.run(function(ctx){
-      var r = ctx.document.body.search(cleaned.slice(0,50), {matchCase:false, matchWholeWord:false});
-      r.load('items');
-      return ctx.sync().then(function(){
-        if(!r.items.length) return;
-        r.items[0].font.highlightColor = color;
-        r.items[0].select();
-        return ctx.sync();
-      });
-    }).catch(function(){});
-  });
+  }).catch(function(){});
 }
+
 
 /* ══════════════════════════════════════════
    USER TEXT SELECTION

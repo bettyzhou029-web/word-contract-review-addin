@@ -1704,41 +1704,77 @@ function highlightInWord(text, level){
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise', user:'Yellow'};
   var color = colorMap[level] || 'Yellow';
 
-  /* Clean text: normalize whitespace to match Word's body.text output */
   var cleaned = text.replace(/\s+/g, ' ').trim();
+  if(cleaned.length === 0) return;
 
-  /* Try full text first, then progressively shorter prefixes */
-  var attempts = [];
-  if(cleaned.length > 0) attempts.push(cleaned);
-  if(cleaned.length > 80) attempts.push(cleaned.slice(0, 80));
-  if(cleaned.length > 50) attempts.push(cleaned.slice(0, 50));
-  if(cleaned.length > 25) attempts.push(cleaned.slice(0, 25));
-  /* Deduplicate */
-  attempts = attempts.filter(function(s, i, a){ return a.indexOf(s) === i; });
-
-  function trySearch(idx){
-    if(idx >= attempts.length) return;
+  /* For short text, just search directly */
+  if(cleaned.length <= 40){
     Word.run(function(context){
-      var results = context.document.body.search(attempts[idx], {matchCase:false, matchWholeWord:false});
+      var results = context.document.body.search(cleaned, {matchCase:false, matchWholeWord:false});
       results.load('items');
       return context.sync().then(function(){
-        if(results.items.length === 0){
-          trySearch(idx + 1);
-          return;
-        }
-        /* Found — highlight all matching items */
-        results.items.forEach(function(item){
-          item.font.highlightColor = color;
-        });
-        /* Scroll to first match */
+        if(!results.items.length) return;
+        results.items[0].font.highlightColor = color;
         results.items[0].select();
         return context.sync();
       });
-    }).catch(function(){
-      trySearch(idx + 1);
-    });
+    }).catch(function(){});
+    return;
   }
-  trySearch(0);
+
+  /* For longer text: search start + end, merge into one range */
+  var startSnip = cleaned.slice(0, 30);
+  var endSnip   = cleaned.slice(-30);
+
+  Word.run(function(context){
+    var startResults = context.document.body.search(startSnip, {matchCase:false, matchWholeWord:false});
+    var endResults   = context.document.body.search(endSnip,   {matchCase:false, matchWholeWord:false});
+    startResults.load('items');
+    endResults.load('items');
+    return context.sync().then(function(){
+      if(!startResults.items.length) return;
+
+      var startRange = startResults.items[0];
+
+      /* If end snip found and different from start, merge the two ranges */
+      if(endResults.items.length > 0){
+        /* Pick the end result that comes after the start result */
+        var endRange = null;
+        for(var i=0; i<endResults.items.length; i++){
+          /* Use expandTo to check order — just pick last occurrence as fallback */
+          endRange = endResults.items[i];
+        }
+        try{
+          var merged = startRange.getRange('Start').expandTo(endRange.getRange('End'));
+          merged.font.highlightColor = color;
+          merged.select();
+          return context.sync();
+        } catch(e){
+          /* fallback: just highlight start */
+          startRange.font.highlightColor = color;
+          startRange.select();
+          return context.sync();
+        }
+      } else {
+        /* End not found — highlight start only */
+        startRange.font.highlightColor = color;
+        startRange.select();
+        return context.sync();
+      }
+    });
+  }).catch(function(e){
+    /* Final fallback: try first 50 chars */
+    Word.run(function(ctx){
+      var r = ctx.document.body.search(cleaned.slice(0,50), {matchCase:false, matchWholeWord:false});
+      r.load('items');
+      return ctx.sync().then(function(){
+        if(!r.items.length) return;
+        r.items[0].font.highlightColor = color;
+        r.items[0].select();
+        return ctx.sync();
+      });
+    }).catch(function(){});
+  });
 }
 
 /* ══════════════════════════════════════════

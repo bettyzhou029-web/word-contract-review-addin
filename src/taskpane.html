@@ -853,18 +853,11 @@ function doUndo(){
 /* ══════════════════════════════════════════
    OFFICE.JS INIT
 ══════════════════════════════════════════ */
-var _officeReady = false;
 if(typeof Office !== 'undefined'){
-  Office.onReady(function(info){
-    _officeReady = true;
-  });
+  Office.onReady(function(){});
 }
 
 function readFromWord(){
-  if(!_officeReady){
-    toast('Office 未就绪，请稍后重试');
-    return;
-  }
   var btn = g('UB');
   btn.textContent = '⏳ 读取中...';
   btn.disabled = true;

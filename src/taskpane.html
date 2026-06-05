@@ -89,7 +89,7 @@ main{display:flex;flex-direction:column;overflow:hidden;}
 .esub{font-family:var(--mono);font-size:10px;}
 
 /* ── Loading ── */
-.ldg{display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;min-height:400px;}
+.ldg{display:none;position:fixed;inset:0;background:rgba(255,255,255,0.92);z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:20px;}
 .ldg.on{display:flex;}
 .lbar{width:200px;height:2px;background:var(--border-light);border-radius:1px;overflow:hidden;}
 .lbar::after{content:'';display:block;width:40%;height:100%;background:var(--ink);animation:sc 1.4s ease-in-out infinite;}
@@ -134,7 +134,7 @@ main{display:flex;flex-direction:column;overflow:hidden;}
 .scan-divider.dragging::after{background:#1d4ed8;transform:translate(-50%,-50%) scale(1.18);}
 
 .scan-right{display:flex;flex-direction:column;background:var(--paper-warm);min-width:200px;font-size:12px;}
-.scan-right-body{flex:1;overflow:hidden;position:relative;}
+.risk-annot-container{display:block;padding:8px 0;}
 #ReviewRightBody{overflow-y:auto!important;}
 .scan-right-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--paper);border-bottom:1px solid var(--border);}
 .scan-right-title{font-size:12px;font-weight:600;}
@@ -449,7 +449,7 @@ main{display:flex;flex-direction:column;overflow:hidden;}
       <div class="slabel">Output Language</div>
       <select id="OL">
         <option value="English">English</option>
-        <option value="Chinese">Chinese (中文)</option>
+        <option value="Chinese">中文</option>
       </select>
     </div>
     <div class="ssec">
@@ -703,7 +703,17 @@ function showErr(ctx, status, raw){
 function closeErr(){ g('EM').classList.remove('on'); }
 
 function ld(on,msg){
-  g('LD').style.display=on?'flex':'none';
+  var ldEl = g('LD');
+  if(!ldEl) return;
+  if(on){
+    ldEl.classList.add('on');
+    ldEl.style.display='flex';
+    /* Make sure loading is visible even in p0-mode by moving to body level */
+    if(ldEl.parentNode !== document.body) document.body.appendChild(ldEl);
+  } else {
+    ldEl.classList.remove('on');
+    ldEl.style.display='none';
+  }
   if(msg) g('LM').textContent=msg;
 }
 
@@ -718,36 +728,32 @@ function onFile(inp){
 }
 
 function goPage(n){
-  var shell=document.querySelector('.shell');
-  if(n===0){
-    /* P0: aside fills full width, main hidden, header hidden */
+  var shell = document.querySelector('.shell');
+
+  if(n === 0){
     if(shell){ shell.classList.add('p0-mode'); shell.classList.remove('aside-collapsed'); }
-    var hdr=document.querySelector('header');
-    if(hdr) hdr.style.display='none';
-    var btn=g('AsideToggleBtn');
-    if(btn){ btn.style.display='none'; }
   } else {
-    /* P1+: show header, collapse aside */
-    if(shell){ shell.classList.remove('p0-mode'); }
-    var hdr=document.querySelector('header');
-    if(hdr) hdr.style.display='';
+    if(shell) shell.classList.remove('p0-mode');
+    var hdr = document.querySelector('header');
+    if(hdr) hdr.style.display = '';
     if(shell && !shell.classList.contains('aside-collapsed')){
       shell.classList.add('aside-collapsed');
-      var btn=g('AsideToggleBtn');
-      if(btn){ btn.style.display='inline-flex'; btn.innerHTML='&#9776; Show'; }
+      var asideBtn = g('AsideToggleBtn');
+      if(asideBtn){ asideBtn.style.display='inline-flex'; asideBtn.innerHTML='&#9776; Show'; }
     }
     showAsideToggle(true);
   }
+
   ['P0','P1','P2','P3'].forEach(function(id,i){
-    g(id).classList.toggle('on', i===n);
+    var el = g(id); if(el) el.classList.toggle('on', i===n);
   });
   ['st0','st1','st2'].forEach(function(id,i){
-    var el=g(id);
+    var el = g(id); if(!el) return;
     el.classList.toggle('active', i===n-1);
     el.classList.toggle('done', i<n-1);
   });
-  /* When entering review table (P2), trigger Word highlights */
-  if(n===2) setTimeout(applyReviewHighlightsWord, 80);
+
+  if(n===2) setTimeout(applyReviewHighlightsWord, 200);
 }
 
 /* ══════════════════════════════════════════
@@ -883,7 +889,6 @@ function run(){
   D.clauses=[]; D.decisions={}; D.instructions={}; D.suggestions={}; D.userClauses=[];
   D.revDecs={}; D.noteDecs={};
   D.convId=null; lsDel('cr_conv_id');
-  goPage(0);
 
   var ct=g('CT').value, pr=g('PR').value.trim()||'Party A', ol=g('OL').value, ai=g('AI').value.trim();
 
@@ -2158,7 +2163,7 @@ function genTable(){
   };
   var requestJson=JSON.stringify(requestObj);
 
-  goPage(0); ld(true,'Generating review table...');
+  ld(true,'Generating review table...');
 
   var payload={
     inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:'',
@@ -2239,12 +2244,20 @@ function parseAndRenderTable(raw, requestObj){
    - ignore → remove highlight
 ══════════════════════════════════════════ */
 function applyReviewHighlights(){
-  /* Legacy no-op: left panel removed, Word highlighting used instead */
+  /* Legacy no-op */
 }
 
-/* ── Word联动：P2审查表卡片点击时高亮原文 ── */
 function applyReviewHighlightsWord(){
-  /* Called when entering P2 — no-op, highlights triggered per-card click */
+  if(typeof Word === 'undefined') return;
+  /* Re-highlight P2 items: revise=Pink, note=Turquoise */
+  setTimeout(function(){
+    (D.reviewTable||[]).forEach(function(item){
+      if(item.original && item.original !== 'N/A'){
+        var lvl = item.action_type==='revise' ? 'high' : 'low';
+        highlightInWord(item.original, lvl);
+      }
+    });
+  }, 300);
 }
 
 function selectReviewCard(id){
@@ -2576,11 +2589,20 @@ function reviewSelectCard(key){
 
   setTimeout(function(){
     positionReviewCards();
+    /* Word联动：高亮对应原文 */
+    var type4=cardId.indexOf('rv')===0?'revise':'note';
+    var ni4=parseInt(cardId.slice(2));
+    var items4=(D.reviewTable||[]).filter(function(r){return r.action_type===type4;});
+    var item4=items4[ni4];
+    if(item4&&item4.original){
+      var lvl4=type4==='revise'?'high':'low';
+      highlightInWord(item4.original, lvl4);
+    }
+    /* Scroll right panel to active card */
     var rrb=g('ReviewRightBody');
     var card2=g('rvc_'+cardId);
     if(rrb&&card2){
-      var top=parseInt(card2.style.top)||0;
-      rrb.scrollTop=Math.max(0,top-60);
+      card2.scrollIntoView({behavior:'smooth',block:'nearest'});
     }
   },60);
 }
@@ -2588,17 +2610,19 @@ function reviewSelectCard(key){
 
 /* ── Position review cards — mirrors positionCards() from P1 ── */
 function positionReviewCards(){
-  /* Flow layout — no absolute positioning needed since left panel removed */
   var container = g('ReviewAnnotContainer');
   if(!container) return;
-  var activeId = _activeReviewCardId;
-  (D.reviewTable||[]).forEach(function(item, n){
-    var id = 'rvc_'+(item.action_type==='revise'?'rv':'nt')+n;
-    var card = g(id);
-    if(!card) return;
+  var activeId = _activeReviewCardId; /* e.g. 'rv0', 'nt1' */
+  var cards = container.querySelectorAll('.risk-card[id^="rvc_"]');
+  cards.forEach(function(card){
     card.style.position = 'static';
     card.style.top = 'auto';
-    card.classList.toggle('collapsed', id !== activeId);
+    card.style.margin = '0 8px 8px 8px';
+    card.style.width = 'calc(100% - 16px)';
+    /* card.id = 'rvc_rv0', activeId = 'rv0' */
+    var cardSuffix = card.id.replace('rvc_', '');
+    var isActive = cardSuffix === activeId;
+    card.classList.toggle('collapsed', !isActive);
   });
 }
 

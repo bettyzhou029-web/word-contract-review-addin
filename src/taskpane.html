@@ -28,7 +28,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:
 .shell.aside-collapsed{grid-template-columns:0px 1fr;}
 .shell.p0-mode{display:block;}
 .shell.p0-mode header{display:none!important;}
-.shell.p0-mode aside{width:100%;height:100vh;border-right:none;grid-row:unset;grid-column:unset;}
+.shell.p0-mode aside{width:100%;height:100vh;max-height:100vh;overflow-y:auto!important;border-right:none;}
 .shell.p0-mode main{display:none;}
 header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 28px;background:#0f172a;border-bottom:1px solid #1e293b;height:56px;}
 .logo-img{height:26px;width:auto;}
@@ -57,7 +57,7 @@ header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 28px;
 .hist-del{position:absolute;right:16px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#dc2626;font-size:12px;padding:2px 8px;border-radius:4px;opacity:0;transition:opacity .15s;}
 .hist-item:hover .hist-del{opacity:1;}
 
-aside{background:var(--paper-warm);border-right:1px solid var(--border);padding:28px 24px;display:flex;flex-direction:column;gap:22px;overflow-y:auto;transition:all .25s;overflow:hidden;}
+aside{background:var(--paper-warm);border-right:1px solid var(--border);padding:28px 24px;display:flex;flex-direction:column;gap:22px;overflow-y:auto;transition:all .25s;}
 .shell.aside-collapsed aside{width:0;padding:0;border:none;overflow:hidden;}
 .aside-toggle{position:fixed;left:0;top:50%;transform:translateY(-50%);width:18px;height:48px;background:#0f172a;border:1px solid #334155;border-left:none;border-radius:0 6px 6px 0;cursor:pointer;display:none;z-index:50;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;}
 .aside-toggle.visible{display:flex;}
@@ -837,20 +837,16 @@ if(typeof Office !== 'undefined'){
 
 function readFromWord(){
   var btn = g('UB');
-  if(!_officeReady){
-    /* Office not ready yet — retry once after 1s */
-    btn.textContent = '⏳ 等待 Office...';
-    btn.disabled = true;
-    setTimeout(function(){
-      btn.textContent = '📄 从 Word 文档读取';
-      btn.disabled = false;
-      if(_officeReady) readFromWord();
-      else toast('Office 仍未就绪，请关闭并重新打开加载项');
-    }, 1500);
-    return;
-  }
   btn.textContent = '⏳ 读取中...';
   btn.disabled = true;
+
+  if(typeof Word === 'undefined'){
+    g('FN').textContent = '❌ Word API 不可用（需在 Word 加载项中运行）';
+    btn.textContent = '📄 从 Word 文档读取';
+    btn.disabled = false;
+    return;
+  }
+
   Word.run(function(context){
     var body = context.document.body;
     body.load('text');
@@ -872,7 +868,8 @@ function readFromWord(){
       toast('文档读取成功，共 ' + text.length + ' 字符');
     });
   }).catch(function(e){
-    toast('读取失败：' + (e.message || String(e)));
+    var msg = e.message || String(e);
+    g('FN').textContent = '❌ 错误: ' + msg;
     btn.textContent = '📄 从 Word 文档读取';
     btn.disabled = false;
   });

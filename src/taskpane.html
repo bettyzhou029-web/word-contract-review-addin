@@ -1,48 +1,3846 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AI 合同审查</title>
-  <link rel="stylesheet" href="taskpane.css"/>
-  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contract Review AI Assistant</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#111827;--ink-soft:#374151;--ink-muted:#9ca3af;
+  --paper:#fff;--paper-warm:#f9fafb;--paper-dark:#f3f4f6;
+  --teal:#0f766e;--teal-soft:#99f6e4;--teal-muted:#f0fdfa;
+  --amber:#92400e;--amber-soft:#fde68a;
+  --green:#166534;--green-soft:#dcfce7;
+  --red:#dc2626;--red-bg:#fef2f2;--red-border:#fecaca;
+  --blue:#2563eb;--blue-bg:#eff6ff;--blue-border:#bfdbfe;
+  --purple:#7c3aed;--purple-bg:#f5f3ff;--purple-border:#ddd6fe;
+  --border:#e5e7eb;--border-light:#f3f4f6;
+  --sans:'Inter',sans-serif;--mono:'DM Mono',monospace;
+  --r:6px;--rl:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;min-height:100vh;}
+
+/* ── Layout ── */
+.shell{display:grid;grid-template-columns:300px 1fr;grid-template-rows:56px 1fr;min-height:100vh;transition:grid-template-columns .25s;}
+.shell.aside-collapsed{grid-template-columns:0px 1fr;}
+header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 28px;background:#0f172a;border-bottom:1px solid #1e293b;height:56px;}
+.logo-img{height:26px;width:auto;}
+.logo-div{width:1px;height:20px;background:#334155;}
+.logo-text{font-size:13px;font-weight:500;color:#f1f5f9;}
+.logo-text em{color:#94a3b8;font-style:normal;font-weight:400;}
+.step-trail{display:flex;align-items:center;gap:0;margin-left:auto;}
+.step-pill{font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:3px 10px;color:#4b5563;transition:all .2s;}
+.step-pill.active{color:#fff;background:#2563eb;border-radius:3px;}
+.step-pill.done{color:#6b7280;}
+.step-sep{color:#334155;font-size:10px;padding:0 2px;}
+.pwrtag{position:fixed;bottom:12px;right:16px;font-family:var(--mono);font-size:9px;color:#d1d5db;text-transform:uppercase;pointer-events:none;z-index:10;}
+.hist-panel{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:none;align-items:center;justify-content:center;}
+.hist-panel.on{display:flex;}
+.hist-box{background:#fff;border-radius:12px;width:560px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+.hist-hdr{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.hist-hdr h3{font-size:14px;font-weight:600;margin:0;}
+.hist-close{background:none;border:none;cursor:pointer;font-size:18px;color:var(--ink-muted);padding:0 4px;}
+.hist-list{overflow-y:auto;flex:1;padding:8px 0;}
+.hist-item{padding:12px 20px;cursor:pointer;border-bottom:1px solid var(--border-light);transition:background .1s;position:relative;}
+.hist-item:hover{background:var(--paper-dark);}
+.hist-item:last-child{border-bottom:none;}
+.hist-name{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;}
+.hist-meta{font-size:11px;color:var(--ink-muted);display:flex;gap:12px;margin-top:3px;}
+.hist-empty{padding:40px 20px;text-align:center;color:var(--ink-muted);font-size:13px;}
+.hist-del{position:absolute;right:16px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#dc2626;font-size:12px;padding:2px 8px;border-radius:4px;opacity:0;transition:opacity .15s;}
+.hist-item:hover .hist-del{opacity:1;}
+
+aside{background:var(--paper-warm);border-right:1px solid var(--border);padding:28px 24px;display:flex;flex-direction:column;gap:22px;overflow-y:auto;transition:all .25s;overflow:hidden;}
+.shell.aside-collapsed aside{width:0;padding:0;border:none;overflow:hidden;}
+.aside-toggle{position:fixed;left:0;top:50%;transform:translateY(-50%);width:18px;height:48px;background:#0f172a;border:1px solid #334155;border-left:none;border-radius:0 6px 6px 0;cursor:pointer;display:none;z-index:50;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;}
+.aside-toggle.visible{display:flex;}
+.slabel{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink);padding-bottom:6px;border-bottom:1px solid var(--border);}
+.ssec{display:flex;flex-direction:column;gap:8px;}
+select,input[type=text],input[type=password]{background:var(--paper);border:1px solid var(--border);border-radius:var(--r);padding:8px 12px;font-family:var(--sans);font-size:13px;color:var(--ink);width:100%;appearance:none;outline:none;transition:border-color .15s;}
+select:focus,input:focus{border-color:var(--ink-soft);}
+textarea.addl{background:var(--paper);border:1px solid var(--border);border-radius:var(--r);padding:8px 12px;font-family:var(--sans);font-size:12px;color:var(--ink);width:100%;outline:none;resize:vertical;min-height:60px;transition:border-color .15s;}
+textarea.addl:focus{border-color:var(--ink-soft);}
+.upbtn{display:block;width:100%;padding:12px;border:1.5px dashed var(--border);border-radius:var(--rl);background:var(--paper);cursor:pointer;font-size:13px;color:var(--ink-muted);text-align:center;transition:all .15s;font-family:var(--sans);}
+.upbtn:hover{border-color:var(--ink-soft);background:var(--paper-dark);color:var(--ink);}
+.upbtn.done{border-color:var(--teal);border-style:solid;color:var(--teal);}
+.fname{font-family:var(--mono);font-size:11px;color:var(--teal);margin-top:4px;word-break:break-all;}
+.submt{width:100%;padding:12px;background:var(--ink);color:var(--paper);border:none;border-radius:var(--r);font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;margin-top:4px;}
+.submt:hover{background:#333;}
+.submt:disabled{background:var(--border);color:var(--ink-muted);cursor:not-allowed;}
+
+main{display:flex;flex-direction:column;overflow:hidden;}
+.page{display:none;flex-direction:column;flex:1;min-height:0;}
+.page.on{display:flex;}
+
+/* ── Empty ── */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:400px;text-align:center;color:var(--ink-muted);}
+.egrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border-light);width:120px;height:120px;opacity:.3;}
+.egrid div{background:var(--paper-warm);}
+.egrid div:nth-child(odd){background:var(--paper-dark);}
+.etitle{font-size:15px;font-weight:500;color:var(--ink-soft);}
+.esub{font-family:var(--mono);font-size:10px;}
+
+/* ── Loading ── */
+.ldg{display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;min-height:400px;}
+.ldg.on{display:flex;}
+.lbar{width:200px;height:2px;background:var(--border-light);border-radius:1px;overflow:hidden;}
+.lbar::after{content:'';display:block;width:40%;height:100%;background:var(--ink);animation:sc 1.4s ease-in-out infinite;}
+@keyframes sc{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+.lmsg{font-family:var(--mono);font-size:11px;color:var(--ink-muted);}
+
+/* ── Scan view with resizable columns ── */
+.scan-wrap{display:flex;flex:1;min-height:0;overflow:hidden;box-sizing:border-box;align-items:stretch;}
+.scan-left{display:flex;flex-direction:column;min-width:200px;min-height:0;overflow-y:auto;}
+.scan-toolbar{display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--paper-warm);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;flex-shrink:0;}
+.scan-title{font-size:13px;font-weight:500;}
+.scan-legend{display:flex;gap:12px;margin-left:auto;font-family:var(--mono);font-size:9px;}
+.leg{display:flex;align-items:center;gap:4px;color:var(--ink-muted);}
+.leg-dot{width:10px;height:10px;border-radius:2px;}
+.leg-h{background:#fca5a5;}
+.leg-m{background:#fde68a;}
+.leg-l{background:#bfdbfe;}
+.scan-body{padding:20px 24px 40px 24px;font-size:13px;line-height:1.8;color:var(--ink);}
+/* ── Word-like contract formatting ── */
+.ct-h1{font-size:15px;font-weight:700;margin:18px 0 6px;color:var(--ink);}
+.ct-h2{font-size:14px;font-weight:600;margin:14px 0 4px;color:var(--ink);}
+.ct-h3{font-size:13px;font-weight:600;margin:10px 0 3px;color:var(--ink);}
+.ct-clause{margin:0 0 6px 0;padding-left:1.8em;text-indent:-1.8em;line-height:1.75;}
+.ct-subclause{margin:0 0 5px 0;padding-left:3.2em;text-indent:-1.4em;line-height:1.75;}
+.ct-subsubclause{margin:0 0 4px 0;padding-left:4.4em;text-indent:-1.2em;line-height:1.75;}
+.ct-para{margin:0 0 8px 0;line-height:1.8;}
+.ct-center{text-align:center;margin:6px 0;font-weight:500;}
+.ct-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px;table-layout:fixed;word-break:break-word;}
+.ct-table td,.ct-table th{border:1px solid var(--border);padding:5px 8px;vertical-align:top;word-wrap:break-word;}
+.ct-table th{background:var(--paper-warm);font-weight:600;}
+/* First col (序号) narrow */
+.ct-table td:first-child,.ct-table th:first-child{width:40px;text-align:center;}
+.ct-meta{} /* no special style */
+.ct-blank{height:6px;}
+
+/* ── Resizable divider ── */
+.scan-divider{width:12px;background:transparent;cursor:col-resize;flex-shrink:0;position:relative;z-index:2;}
+.scan-divider::before{content:'';position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);width:1px;background:var(--border);transition:background .15s;}
+.scan-divider::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:28px;border-radius:999px;background:var(--blue-border);transition:background .15s,transform .15s;pointer-events:none;box-shadow:0 0 0 1px rgba(37,99,235,.08);}
+.scan-divider:hover::before,.scan-divider.dragging::before{background:var(--blue);}
+.scan-divider:hover::after{background:var(--blue);transform:translate(-50%,-50%) scale(1.12);}
+.scan-divider.dragging::after{background:#1d4ed8;transform:translate(-50%,-50%) scale(1.18);}
+
+.scan-right{display:flex;flex-direction:column;background:var(--paper-warm);min-width:200px;font-size:12px;}
+.scan-right-body{flex:1;overflow:hidden;position:relative;}
+#ReviewRightBody{overflow-y:auto!important;}
+.scan-right-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--paper);border-bottom:1px solid var(--border);}
+.scan-right-title{font-size:12px;font-weight:600;}
+.scan-count{font-family:var(--mono);font-size:9px;color:var(--ink-muted);}
+/* risk-list: the positioning container */
+.risk-list{position:relative;}
+/* each card is absolutely positioned to align with its highlight */
+.risk-card{position:absolute;left:0;right:0;border:1px solid var(--border);border-radius:8px;background:var(--paper);cursor:pointer;transition:box-shadow .15s,opacity .2s,top .3s ease;margin:0 8px;width:calc(100% - 16px);overflow:hidden;}
+.risk-card:hover{border-color:#93c5fd;box-shadow:0 2px 8px rgba(59,130,246,.1);}
+.risk-card.active{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.15);background:var(--blue-bg);}
+.risk-card.decided{opacity:.4;}
+.risk-card.decided:hover{opacity:.85;}
+.risk-card.decided.active{opacity:1;}
+.risk-card.user-added{border-left:3px solid var(--purple);}
+/* ── Collapsed state: show only level badge + title, hide body ── */
+.risk-card.collapsed .risk-issue,
+.risk-card.collapsed .risk-suggestion,
+.risk-card.collapsed .risk-actions,
+.risk-card.collapsed .revise-input-wrap{display:none;}
+.risk-card.collapsed .risk-name{font-size:11px;font-weight:500;margin:0;padding:2px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.risk-card.collapsed .risk-card-head{padding-bottom:0;}
+.risk-card.collapsed{padding-bottom:4px;}
+/* Collapsed + NOT decided: show risk-level colored left border (vivid, not grey) */
+.risk-card.collapsed:not(.decided){border-left-width:3px;border-left-style:solid;}
+.risk-card.collapsed:not(.decided).rl-border-high{border-left-color:#ef4444;}
+.risk-card.collapsed:not(.decided).rl-border-mid{border-left-color:#f59e0b;}
+.risk-card.collapsed:not(.decided).rl-border-low{border-left-color:#3b82f6;}
+.risk-card.collapsed:not(.decided).rl-border-user{border-left-color:var(--purple);}
+/* Decided cards: muted border + lowered opacity */
+.risk-card.decided{opacity:.35;border-left-color:var(--border)!important;}
+.risk-card.decided.active{opacity:1;}
+/* Inline user cards (positioned same as AI cards) */
+.risk-card.user-inline{border-left:3px solid var(--purple);}
+.risk-card-head{display:flex;align-items:center;gap:8px;padding:10px 14px 6px;}
+.risk-level{font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:2px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;}
+.rl-high{background:#fef2f2;color:#dc2626;}
+.rl-mid{background:#fffbeb;color:#b45309;}
+.rl-low{background:#eff6ff;color:#1d4ed8;}
+.rl-user{background:var(--purple-bg);color:var(--purple);}
+.risk-ref{font-family:var(--mono);font-size:9px;color:var(--ink);background:var(--paper-dark);padding:1px 6px;border-radius:2px;}
+.risk-name{font-size:1em;font-weight:500;padding:0 14px 4px;}
+.risk-issue{font-size:0.9em;color:var(--ink-soft);padding:0 14px 4px;line-height:1.5;}
+.risk-suggestion{font-size:0.85em;color:#0f766e;padding:0 14px 8px;line-height:1.5;font-style:italic;}
+.risk-sug-lbl{font-weight:600;font-style:normal;}
+.risk-actions{display:flex;gap:6px;padding:6px 14px 10px;border-top:1px solid var(--border-light);}
+.ract{padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);font-family:var(--mono);font-size:9px;cursor:pointer;transition:all .12s;background:var(--paper);color:var(--ink-soft);letter-spacing:.04em;}
+.ract:hover{border-color:var(--ink-soft);color:var(--ink);}
+.ract.sel-note{border-color:#7c3aed;background:#f5f3ff;color:#7c3aed;}
+.ract.sel-revise{border-color:#7c3aed;background:#f5f3ff;color:#7c3aed;}
+.ract.sel-ignore{border-color:var(--border);background:var(--paper-dark);color:var(--ink-muted);}
+.revise-input-wrap{padding:0 14px 10px;display:none;}
+.revise-input-wrap.open{display:block;}
+.revise-input{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r);font-family:var(--sans);font-size:11px;color:var(--ink);resize:none;outline:none;min-height:44px;background:var(--paper);}
+.revise-input:focus{border-color:var(--ink-soft);}
+.scan-footer{padding:10px 16px;background:var(--paper);border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;flex-shrink:0;}
+.scan-footer-row{display:flex;align-items:center;justify-content:space-between;}
+.scan-prog{font-family:var(--mono);font-size:10px;color:var(--ink-muted);}
+.scan-prog strong{color:var(--ink);}
+.prog-bar-wrap{width:100%;height:4px;background:var(--border-light);border-radius:2px;overflow:hidden;}
+.prog-bar-fill{height:100%;background:#7c3aed;border-radius:2px;transition:width .3s ease;}
+
+/* ── Buttons ── */
+.btn-primary{padding:9px 22px;background:var(--ink);color:var(--paper);border:none;border-radius:var(--r);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;}
+.btn-primary:hover{background:#333;}
+.btn-primary:disabled{background:var(--border);color:var(--ink-muted);cursor:not-allowed;}
+.btn-sec{padding:9px 22px;background:var(--paper-dark);color:var(--ink);border:1px solid var(--border);border-radius:var(--r);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;}
+.btn-sec:hover{border-color:var(--ink-soft);}
+
+/* ── Selection popup ── */
+.sel-popup{position:fixed;background:var(--ink);border-radius:var(--rl);padding:6px;display:none;gap:4px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.2);}
+.sel-popup.show{display:flex;}
+.spop-btn{padding:5px 10px;border-radius:var(--r);font-family:var(--mono);font-size:9px;cursor:pointer;border:none;letter-spacing:.06em;}
+.spop-note{background:#374151;color:#d1d5db;}
+.spop-note:hover{background:#4b5563;}
+.spop-revise{background:var(--blue);color:#fff;}
+.spop-revise:hover{background:#1d4ed8;}
+.spop-color{width:18px;height:18px;border-radius:50%;cursor:pointer;transition:transform .1s,box-shadow .1s;flex-shrink:0;}
+.spop-color:hover{transform:scale(1.2);}
+.spop-color.selected{box-shadow:0 0 0 3px #fff,0 0 0 5px rgba(255,255,255,.5);transform:scale(1.15);}
+/* user-highlight colors */
+.hl-user-blue{background:#bfdbfe;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-user-yellow{background:#fef9c3;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-user-red{background:#fecaca;border-radius:2px;padding:1px 2px;cursor:pointer;}
+
+/* ── Highlight styles ── */
+/* P1 初筛：high=红, mid=黄, low=蓝 */
+.hl-high{background:#fecaca;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-mid{background:#fef9c3;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-low{background:#dbeafe;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-user{background:#ede9fe;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-user-blue{background:#bfdbfe;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-user-yellow{background:#fef9c3;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-user-red{background:#fecaca;border-radius:2px;padding:1px 2px;cursor:pointer;}
+.hl-click{transition:outline .1s;}
+/* P1 selected: 3px蓝色粗边框 + 小蓝点 */
+.hl-selected{outline:3px solid #1d4ed8!important;outline-offset:3px;}
+.hl-selected::after{content:'';display:inline-block;width:6px;height:6px;background:#1d4ed8;border-radius:50%;margin-left:3px;vertical-align:middle;}
+/* Highlight in reselect mode */
+.hl-reselect{outline:2px dashed #f59e0b!important;outline-offset:2px;opacity:0.5;cursor:crosshair!important;}
+/* Edit highlight button on card head */
+.hl-edit-btn{margin-left:auto;padding:2px 7px;font-size:9px;font-family:var(--mono);border:1px solid var(--border);border-radius:3px;background:var(--paper-dark);cursor:pointer;color:var(--ink-muted);letter-spacing:.04em;flex-shrink:0;}
+.hl-edit-btn:hover{background:var(--paper);color:var(--ink);}
+.hl-edit-btn.active{background:#fef3c7;border-color:#f59e0b;color:#92400e;}
+
+/* ── Review table ── */
+.rtable-wrap{padding:32px 36px;display:flex;flex-direction:column;gap:24px;}
+.sh{display:flex;align-items:baseline;gap:12px;padding-bottom:10px;border-bottom:1.5px solid var(--ink);}
+.stitle{font-size:16px;font-weight:500;}
+.stag{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);}
+.badge{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:2px;letter-spacing:.06em;text-transform:uppercase;}
+.brev{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;}
+.bnote{background:var(--paper-dark);color:var(--ink-soft);border:1px solid var(--border);}
+.clause-list{display:flex;flex-direction:column;gap:12px;}
+
+/* Revision card */
+.rcard{border:1px solid #bfdbfe;border-radius:var(--rl);background:#eff6ff;overflow:hidden;transition:opacity .2s;}
+.rcard.accepted{border-color:#bbf7d0;background:#f0fdf4;opacity:.8;}
+.rcard.rejected{opacity:.35;}
+.rcard.moved{opacity:.35;}
+.rcard-head{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;background:#dbeafe;border-bottom:1px solid #bfdbfe;}
+.rcard-num{font-family:var(--mono);font-size:10px;color:var(--ink-muted);min-width:28px;}
+.rcard-ref{font-family:var(--mono);font-size:9px;color:var(--ink-muted);background:var(--paper-dark);padding:1px 6px;border-radius:2px;}
+.rcard-name{flex:1;font-size:13px;font-weight:500;}
+.rcard-tog{font-family:var(--mono);font-size:14px;color:var(--ink-muted);transition:transform .2s;}
+.rcard.open .rcard-tog{transform:rotate(180deg);}
+.rcard-body{display:none;padding:14px 16px;flex-direction:column;gap:12px;background:#eff6ff;}
+.rcard.open .rcard-body{display:flex;}
+.rdiff{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.rdiff-panel{padding:8px 10px;border-radius:var(--r);font-size:13px;line-height:1.7;}
+.rdiff-lbl{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;font-weight:500;}
+.dpanel-orig{background:var(--red-bg);border-left:2px solid var(--red);}
+.dpanel-orig .rdiff-lbl{color:var(--red);}
+.dpanel-rev{background:#f0fdf4;border-left:2px solid #16a34a;}
+.dpanel-rev .rdiff-lbl{color:#16a34a;}
+.rl-add{color:var(--red);font-weight:600;text-decoration:underline;}
+.rl-del{color:var(--red);text-decoration:line-through;}
+/* Review table annotation cards */
+.rc-revise{border-color:var(--border)!important;background:var(--paper-dark);}
+.rc-revise:hover{border-color:#d1d5db!important;}
+.rc-revise.active{border-color:#f97316!important;background:#fff7ed;}
+.rc-revise.rv-accepted{opacity:.3;border-color:var(--border)!important;background:var(--paper-dark);}
+.rc-revise.rv-dismissed{opacity:.3;border-color:var(--border)!important;background:var(--paper-dark);}
+.rc-note{border-color:var(--border)!important;background:var(--paper-dark);}
+.rc-note:hover{border-color:#d1d5db!important;}
+.rc-note.active{border-color:#3b82f6!important;background:#eff6ff;}
+.rc-note.nt-included{opacity:.3;border-color:var(--border)!important;background:var(--paper-dark);}
+.rc-note.nt-dismissed{opacity:.3;border-color:var(--border)!important;background:var(--paper-dark);}
+.risk-card-name{font-size:12px;font-weight:600;color:var(--ink);margin:4px 0;}
+/* P2 审查表高亮：revise=橙, note=蓝 */
+.hl-review-revise{background:#fde8d8!important;outline:1px solid #f97316!important;}
+.hl-review-note{background:#dbeafe!important;outline:1px solid #3b82f6!important;}
+.hl-review-ignore{background:transparent!important;outline:none!important;color:var(--ink)!important;}
+/* P2 selected: 必须在revise/note之后才能覆盖 — 3px粗边框 + 小蓝点 */
+.hl-review-selected{outline:3px solid #1d4ed8!important;outline-offset:3px;}
+.hl-review-selected::after{content:'';display:inline-block;width:6px;height:6px;background:#1d4ed8;border-radius:50%;margin-left:3px;vertical-align:middle;}
+/* Edit revision button */
+.rev-edit-btn{padding:3px 10px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--paper-dark);cursor:pointer;color:var(--ink-muted);}
+.rev-edit-btn:hover{background:var(--paper);color:var(--ink);}
+.rev-edit-btn.editing{background:#fef3c7;border-color:#f59e0b;color:#92400e;}
+.rev-edit-area{width:100%;min-height:80px;padding:8px;font-family:var(--mono);font-size:11px;border:1px solid #f59e0b;border-radius:6px;resize:vertical;outline:none;background:#fffbeb;line-height:1.6;margin-top:6px;}
+.rcard-issue{font-size:13px;line-height:1.7;color:var(--ink-soft);padding:8px 10px;background:var(--paper-warm);border-radius:var(--r);border-left:2px solid var(--border);}
+.rcard-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border-light);}
+.rac{padding:5px 12px;border-radius:var(--r);border:1.5px solid var(--border);background:var(--paper);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .12s;color:var(--ink-soft);}
+.rac:hover{border-color:var(--ink-soft);color:var(--ink);}
+.rac.ok{border-color:#16a34a;background:#f0fdf4;color:#16a34a;}
+.rac.no{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+.rac.nt{border-color:var(--amber);background:#fffbeb;color:var(--amber);}
+.reinput-wrap{display:none;margin-top:6px;}
+.reinput-wrap.open{display:flex;gap:6px;}
+.reinput{flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r);font-family:var(--sans);font-size:12px;outline:none;resize:none;min-height:40px;}
+.reinput:focus{border-color:var(--ink-soft);}
+.regen-btn{padding:6px 12px;background:var(--ink);color:#fff;border:none;border-radius:var(--r);font-family:var(--mono);font-size:9px;cursor:pointer;white-space:nowrap;}
+.regen-btn:disabled{background:var(--border);cursor:not-allowed;}
+
+/* Note card */
+.ncard{border:1px solid #fef08a;border-radius:var(--rl);overflow:hidden;transition:opacity .2s;}
+.ncard:nth-child(odd){background:#fffbeb;}
+.ncard:nth-child(even){background:#fefce8;}
+.ncard.dismissed{opacity:.35;}
+.ncard.upgraded{opacity:.35;}
+.ncard-head{display:flex;align-items:center;gap:10px;padding:11px 16px;cursor:pointer;background:#fefce8;border-bottom:1px solid #fef08a;}
+.ncard-name{flex:1;font-size:13px;}
+.ncard-body{display:none;padding:12px 16px;flex-direction:column;gap:10px;background:#fffbeb;}
+.ncard.open .ncard-body{display:flex;}
+.ncard.open .rcard-tog{transform:rotate(180deg);}
+.ncard-text{font-size:13px;color:var(--ink-soft);padding:8px 10px;background:var(--paper-warm);border-radius:var(--r);}
+.ncard-actions{display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border-light);flex-wrap:wrap;}
+.nac{padding:5px 12px;border-radius:var(--r);border:1.5px solid var(--border);background:var(--paper);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .12s;color:var(--ink-soft);}
+.nac:hover{border-color:var(--ink-soft);color:var(--ink);}
+.nac.inc{border-color:#16a34a;background:#f0fdf4;color:#16a34a;}
+.nac.dis{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+.nac.up{border-color:var(--purple);background:var(--purple-bg);color:var(--purple);}
+
+/* Add clause */
+.add-clause-wrap{border:1.5px dashed var(--border);border-radius:var(--rl);padding:16px;background:var(--paper-warm);}
+.add-clause-title{font-size:12px;font-weight:600;margin-bottom:10px;color:var(--ink-soft);}
+.add-row{display:flex;gap:8px;margin-bottom:8px;}
+.add-row textarea{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-family:var(--sans);font-size:12px;resize:none;outline:none;min-height:56px;}
+.add-row textarea:focus{border-color:var(--ink-soft);}
+.add-row select{width:130px;padding:7px 10px;font-size:12px;}
+.add-note-input{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-family:var(--sans);font-size:12px;outline:none;margin-bottom:8px;}
+.add-note-input:focus{border-color:var(--ink-soft);}
+.add-btn{padding:7px 16px;background:var(--ink);color:#fff;border:none;border-radius:var(--r);font-family:var(--mono);font-size:9px;cursor:pointer;letter-spacing:.08em;}
+
+/* Table footer */
+.rtable-footer{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--paper-warm);border:1px solid var(--border);border-radius:var(--rl);margin-top:12px;}
+.prog-txt{font-family:var(--mono);font-size:10px;color:var(--ink-muted);}
+.prog-txt strong{color:var(--ink);}
+
+/* Report */
+.report-page{padding:32px 36px;display:flex;flex-direction:column;gap:20px;}
+.rwrap{border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;}
+.rhdr{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:#0f172a;color:var(--paper);}
+.rtitle{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;}
+.cpybtn{padding:5px 12px;background:transparent;color:var(--paper);border:1px solid #555;border-radius:var(--r);font-family:var(--mono);font-size:10px;cursor:pointer;}
+.cpybtn:hover{border-color:#aaa;}
+.rbody{padding:24px 28px;background:var(--paper);font-size:13px;line-height:1.9;color:var(--ink);}
+.rbody h1,.rbody h2{font-size:15px;font-weight:600;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border);}
+.rbody h3,.rbody h4{font-size:13px;font-weight:600;margin:12px 0 4px;}
+.rbody p{margin:0 0 8px;}
+.rbody ul{padding-left:20px;margin:4px 0 8px;}
+.rbody li{line-height:1.8;}
+.rbody strong{font-weight:600;}
+.rbody hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
+.rbody blockquote{border-left:3px solid var(--border);padding:6px 12px;color:var(--ink-soft);margin:8px 0;background:var(--paper-warm);}
+.rbody code{font-family:var(--mono);font-size:11px;background:var(--paper-dark);padding:1px 5px;border-radius:3px;}
+
+/* Followup */
+.fwrap{border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;}
+.fhdr{padding:10px 16px;background:var(--paper-warm);border-bottom:1px solid var(--border-light);font-family:var(--mono);font-size:10px;color:var(--ink-soft);text-transform:uppercase;}
+.fhist{display:flex;flex-direction:column;gap:12px;padding:16px;max-height:360px;overflow-y:auto;}
+.mb{font-size:13px;line-height:1.7;max-width:85%;}
+.mu{background:#1e293b;color:#f1f5f9;align-self:flex-end;padding:10px 14px;border-radius:14px 14px 2px 14px;position:relative;}
+.mu::before{content:'You';display:block;font-family:var(--mono);font-size:9px;color:#64748b;margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;}
+.mai{background:var(--paper);color:var(--ink);border:1px solid var(--border);align-self:flex-start;padding:10px 14px;border-radius:14px 14px 14px 2px;max-width:92%;}
+.mai::before{content:'AI Assistant';display:block;font-family:var(--mono);font-size:9px;color:var(--blue);margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;}
+.mth{color:var(--ink-muted);font-style:italic;font-family:var(--mono);font-size:10px;align-self:flex-start;padding:6px 10px;}
+.mth::before{display:none;}
+.finrow{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border-light);}
+.finput{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r);font-family:var(--sans);font-size:13px;color:var(--ink);background:var(--paper-warm);outline:none;resize:none;min-height:40px;max-height:120px;}
+.finput:focus{border-color:var(--ink-soft);}
+.sndbtn{padding:8px 16px;background:var(--ink);color:var(--paper);border:none;border-radius:var(--r);font-family:var(--mono);font-size:10px;cursor:pointer;}
+.sndbtn:hover{background:#333;}
+.sndbtn:disabled{background:var(--border);cursor:not-allowed;}
+
+/* Error modal */
+.errmask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;}
+.errmask.on{opacity:1;pointer-events:all;}
+.errmodal{background:var(--paper);border-radius:12px;width:480px;max-width:calc(100vw - 40px);box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;}
+.errmodal-head{display:flex;align-items:center;gap:10px;padding:18px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;}
+.errmodal-icon{width:32px;height:32px;border-radius:50%;background:#dc2626;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;color:#fff;font-weight:700;}
+.errmodal-title{font-size:14px;font-weight:600;color:#991b1b;flex:1;}
+.errmodal-code{font-family:var(--mono);font-size:10px;color:#dc2626;background:#fecaca;padding:2px 7px;border-radius:3px;}
+.errmodal-body{padding:18px 20px;display:flex;flex-direction:column;gap:10px;}
+.errmodal-cause{font-size:13px;color:var(--ink);line-height:1.6;}
+.errmodal-detail{font-family:var(--mono);font-size:11px;color:var(--ink-muted);background:var(--paper-dark);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto;}
+.errmodal-hint{font-size:12px;color:var(--ink-muted);background:var(--paper-warm);border-left:3px solid var(--border);padding:8px 10px;border-radius:0 var(--r) var(--r) 0;line-height:1.6;}
+.errmodal-foot{display:flex;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--border-light);}
+.errmodal-close{padding:8px 20px;background:var(--ink);color:var(--paper);border:none;border-radius:var(--r);font-family:var(--mono);font-size:11px;cursor:pointer;}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;padding:10px 18px;background:#166534;color:#fff;border-radius:var(--r);font-family:var(--mono);font-size:11px;opacity:0;transform:translateY(8px);transition:all .2s;z-index:999;pointer-events:none;}
+.toast.on{opacity:1;transform:translateY(0);}
+
+/* Undo toast */
+.undo-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--ink);color:#fff;border-radius:var(--rl);padding:10px 18px;display:flex;align-items:center;gap:14px;font-size:12px;z-index:998;opacity:0;transition:all .25s;pointer-events:none;}
+.undo-toast.on{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:all;}
+.undo-btn{padding:4px 10px;border:1px solid #4b5563;border-radius:var(--r);font-family:var(--mono);font-size:9px;color:#d1d5db;cursor:pointer;background:transparent;}
+.undo-btn:hover{background:#1f2937;}
+.undo-bar{width:80px;height:2px;background:#374151;border-radius:1px;overflow:hidden;}
+.undo-bar-fill{height:100%;background:var(--blue);width:100%;transition:width 30s linear;}
+</style>
 </head>
 <body>
-  <header class="app-header">
-    <div class="app-header__brand">
-      <span class="app-header__title">AI 合同审查</span>
-      <span class="app-header__subtitle">内部法务 · Word 加载项</span>
-    </div>
-    <span id="office-status" class="status-badge status-badge--loading">初始化中…</span>
+
+
+<div class="shell">
+  <header>
+    <img class="logo-img" src="data:image/png;base64,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" alt="CDNetworks">
+    <div class="logo-div"></div>
+    <div class="logo-text">Contract Review <em>AI Assistant</em></div>
+    <button id="AsideToggleBtn" onclick="toggleAside()" style="display:none;padding:4px 10px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer;font-family:var(--mono);font-size:10px;margin-right:4px;" title="Toggle sidebar">&#9776;</button>
+    <nav class="step-trail" id="StepTrail">
+      <span class="step-pill active" id="st0">01 SCAN</span>
+      <span class="step-sep">›</span>
+      <span class="step-pill" id="st1">02 REVIEW TABLE</span>
+      <span class="step-sep">›</span>
+      <span class="step-pill" id="st2">03 REPORT</span>
+    </nav>
   </header>
 
-  <main class="app-main">
-    <section class="panel panel--actions">
-      <p class="panel__hint">审查当前打开的 Word 文档，结果将显示在下方卡片列表中。</p>
-      <button id="btn-start-review" class="btn btn--primary" type="button" disabled>
-        开始审查
-      </button>
-      <p id="action-message" class="panel__message" aria-live="polite"></p>
-    </section>
+  <aside>
+    <div class="ssec">
+      <div class="slabel" style="display:flex;align-items:center;justify-content:space-between;">Configuration<button onclick="showHist()" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--blue);padding:0;">History</button></div>
+      <input type="password" id="K" placeholder="app-xxxxxxxxxxxxxxxx" oninput="chk()">
+    </div>
+    <div class="ssec">
+      <div class="slabel">Contract Type</div>
+      <select id="CT">
+        <option value="procurement contract">Procurement Contract</option>
+        <option value="sales contract">Sales Contract</option>
+        <option value="third-party professional service contract">Professional Services</option>
+        <option value="compliance document">NDA / Compliance</option>
+        <option value="general">General Review</option>
+      </select>
+    </div>
+    <div class="ssec">
+      <div class="slabel">Party Role</div>
+      <input type="text" id="PR" value="Party A" placeholder="e.g. Party A / Customer">
+    </div>
+    <div class="ssec">
+      <div class="slabel">Output Language</div>
+      <select id="OL">
+        <option value="English">English</option>
+        <option value="Chinese">Chinese (中文)</option>
+      </select>
+    </div>
+    <div class="ssec">
+      <div class="slabel">Additional Instructions</div>
+      <textarea class="addl" id="AI" placeholder="e.g. Vendor requests minimal revisions only..."></textarea>
+    </div>
+    <div class="ssec">
+      <div class="slabel">Contract Source</div>
+      <button class="upbtn done" id="UB" onclick="readFromWord()" type="button">📄 从 Word 文档读取</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+        <span style="font-size:11px;color:var(--ink-muted);">或</span>
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+      <label for="FI" class="upbtn" id="UB2" style="margin-top:6px;font-size:12px;">+ 上传 PDF / DOCX</label>
+      <div class="fname" id="FN"></div>
+    </div>
+    <button class="submt" id="GO" disabled onclick="run()">Start Review →</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      <span style="font-size:11px;color:var(--ink-muted);">或</span>
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+    <button class="btn-sec" onclick="showImportTableDialog()" style="width:100%;margin-top:8px;font-size:12px;color:var(--ink-muted);">⬆ 直接导入审查表JSON</button>
+  </aside>
 
-    <section class="panel panel--results">
-      <div class="panel__head">
-        <h2 class="panel__title">审查结果</h2>
-        <span id="result-count" class="panel__count">0 条</span>
+  <main id="Main">
+    <!-- Page 0: Empty -->
+    <div class="page on" id="P0">
+      <div class="empty">
+        <div class="egrid"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+        <div class="etitle">Contract Review Workspace</div>
+        <div class="esub">Configure parameters → Upload file → Start Review</div>
       </div>
-      <div id="results-empty" class="empty-state">
-        <div class="empty-state__icon" aria-hidden="true">📋</div>
-        <p class="empty-state__title">暂无审查结果</p>
-        <p class="empty-state__text">点击「开始审查」后，AI 意见将按风险等级在此展示。</p>
+    </div>
+
+    <!-- Loading -->
+    <div class="ldg" id="LD"><div class="lbar"></div><div class="lmsg" id="LM">Analyzing contract...</div><button onclick="cancelRun()" style="margin-top:16px;padding:8px 20px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;font-family:var(--mono);font-size:10px;color:#6b7280;">✕ Cancel</button></div>
+
+    <!-- Page 1: Scan -->
+    <div class="page" id="P1">
+      <div class="scan-wrap" id="ScanWrap">
+        <div class="scan-left" id="ScanLeft" style="flex:1;min-height:0;overflow-y:auto;">
+          <div class="scan-toolbar">
+            <div class="scan-title">Contract Text</div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--ink-muted);margin-left:8px;">Select text to add clause</div>
+            <div class="scan-legend" style="margin-left:auto;">
+              <span class="leg"><span class="leg-dot leg-h"></span>High</span>
+              <span class="leg"><span class="leg-dot leg-m"></span>Medium</span>
+              <span class="leg"><span class="leg-dot leg-l"></span>Low</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;margin-left:12px;">
+              <button onclick="adjFont(-1)" style="width:22px;height:22px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;">A-</button>
+              <button onclick="adjFont(1)" style="width:22px;height:22px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">A+</button>
+            </div>
+          </div>
+          <div class="scan-body" id="ScanBody"></div>
+        </div>
+        <div class="scan-divider" id="ScanDivider"></div>
+        <div class="scan-right" id="ScanRight" style="width:340px;flex-shrink:0;overflow:hidden;">
+          <div class="scan-right-hdr">
+            <div class="scan-right-title">Risk Items</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-left:auto;margin-right:8px;">
+              <button onclick="adjRightFont(-1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:10px;line-height:1;">A-</button>
+              <button onclick="adjRightFont(1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:12px;line-height:1;">A+</button>
+            </div>
+            <div class="scan-count" id="ScanCount">0 items</div>
+          </div>
+          <div class="scan-right-body" id="ScanRightBody">
+            <div class="risk-list" id="RiskList"></div>
+          </div>
+          <!-- Unanchored cards: items whose original text wasn't found in contract -->
+          <div id="UnanchoredCards" style="display:none;border-top:2px solid var(--border);background:var(--paper-warm);">
+            <div id="UnanchoredHdr" style="display:none;align-items:center;gap:8px;padding:10px 14px 8px;background:var(--paper-dark);">
+              <span style="font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);">其他条款</span>
+              <span id="UnanchoredCount" style="font-family:var(--mono);font-size:9px;background:#fef9c3;color:#92400e;padding:1px 6px;border-radius:3px;">0</span>
+              <span style="font-size:11px;color:var(--ink-muted);flex:1;">手动添加 / 原文未匹配的条款</span>
+            </div>
+            <div id="UnanchoredBody"></div>
+          </div>
+          <div class="scan-footer">
+            <div class="prog-bar-wrap"><div class="prog-bar-fill" id="ProgBarFill" style="width:0%"></div></div>
+            <div class="scan-footer-row">
+              <div class="scan-prog" id="ScanProg">Select action for each item</div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn-sec" onclick="exportFeedback()" style="font-size:11px;padding:6px 10px;color:var(--ink-muted);" title="Export feedback JSON for preference learning">📋 Export Feedback</button>
+                <button class="btn-sec" onclick="showImportTableDialog()" style="font-size:11px;padding:6px 10px;color:var(--ink-muted);">⬆ 导入审查表</button>
+                <button class="btn-primary" id="GenTableBtn" onclick="genTable()" disabled>Generate Review Table →</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="results-list" class="results-list" hidden></div>
-    </section>
+    </div>
+
+    <!-- Page 2: Review Table -->
+    <div class="page" id="P2">
+      <div class="scan-wrap" id="ReviewWrap">
+        <!-- Left: contract text -->
+        <div class="scan-left" id="ReviewLeft" style="flex:1;min-height:0;overflow-y:auto;">
+          <div class="scan-toolbar">
+            <div class="scan-title">Review Table</div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--ink-muted);margin-left:8px;">Contract text with review highlights</div>
+            <div class="scan-legend" style="margin-left:auto;">
+              <span class="leg"><span class="leg-dot" style="background:#f97316;"></span>Revise</span>
+              <span class="leg"><span class="leg-dot" style="background:#3b82f6;"></span>Note</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;margin-left:12px;">
+              <button onclick="adjReviewLeftFont(-1)" style="width:22px;height:22px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;">A-</button>
+              <button onclick="adjReviewLeftFont(1)" style="width:22px;height:22px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">A+</button>
+            </div>
+          </div>
+          <div class="scan-body" id="ReviewBody"></div>
+        </div>
+
+        <div class="scan-divider" id="ReviewDivider"></div>
+
+        <!-- Right: review cards -->
+        <div class="scan-right" id="ReviewRight" style="width:360px;flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;">
+          <div class="scan-right-hdr">
+            <div class="scan-right-title">Revisions &amp; Notes</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+              <button onclick="adjReviewRightFont(-1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:10px;line-height:1;">A-</button>
+              <button onclick="adjReviewRightFont(1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:12px;line-height:1;">A+</button>
+            </div>
+            <div style="display:flex;gap:10px;margin-left:12px;font-family:var(--mono);font-size:9px;">
+              <span id="RT_revCount" style="color:#f97316;">0 revisions</span>
+              <span id="RT_noteCount" style="color:#3b82f6;">0 notes</span>
+            </div>
+          </div>
+          <div class="scan-right-body" id="ReviewRightBody" style="flex:1;overflow-y:auto;overflow-x:hidden;">
+            <div class="risk-annot-container" id="ReviewAnnotContainer"></div>
+          </div>
+          <div class="scan-footer" style="flex-shrink:0;">
+            <div class="scan-footer-row">
+              <button class="btn-sec" onclick="goPage(1)" style="font-size:11px;padding:6px 10px;">← Back to Scan</button>
+              <div style="display:flex;gap:8px;">
+                <button class="btn-sec" onclick="exportWord('highlight')" style="font-size:11px;padding:6px 10px;border-color:#f59e0b;color:#92400e;">⬇ 高亮Word</button>
+                <button class="btn-sec" onclick="exportWord('revise')" style="font-size:11px;padding:6px 10px;border-color:#3b82f6;color:#1d4ed8;">⬇ 修订Word</button>
+                <button class="btn-primary" onclick="genReport()">Generate Report →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page 3: Report -->
+    <div class="page" id="P3">
+      <div class="report-page">
+        <div class="rwrap">
+          <div class="rhdr">
+            <span class="rtitle">Contract Review Report</span>
+            <div style="display:flex;align-items:center;gap:4px;margin-left:auto;margin-right:8px;">
+              <button onclick="adjReportFont(-1)" style="width:22px;height:22px;border:1px solid #334155;border-radius:3px;background:transparent;cursor:pointer;font-size:11px;color:#94a3b8;">A-</button>
+              <button onclick="adjReportFont(1)" style="width:22px;height:22px;border:1px solid #334155;border-radius:3px;background:transparent;cursor:pointer;font-size:13px;color:#94a3b8;">A+</button>
+            </div>
+            <button class="cpybtn" onclick="cpyReport()">Copy Report</button>
+          </div>
+          <div class="rbody" id="ReportBody"></div>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn-sec" onclick="goPage(2)">← Back to Table</button>
+          <button class="btn-primary" onclick="reset()">New Review</button>
+        </div>
+        <div class="fwrap" id="FUWrap" style="display:none">
+          <div class="fhdr">Follow-up / Ask Questions</div>
+          <div class="fhist" id="FUHist"></div>
+          <div class="finrow">
+            <textarea class="finput" id="FQ" placeholder="Ask about the contract or review results..." rows="2" onkeydown="fuKey(event)"></textarea>
+            <button class="sndbtn" id="FUSend" onclick="sendFU()">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
+</div>
 
-  <footer class="app-footer">
-    <span>v0.1.0 · 基础框架</span>
-  </footer>
+<!-- Selection popup -->
+<div class="sel-popup" id="SelPopup">
+  <div style="display:flex;align-items:center;gap:6px;padding:6px 8px 4px;border-bottom:1px solid rgba(255,255,255,.15);">
+    <span style="font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.6);letter-spacing:.05em;">HIGHLIGHT</span>
+    <button class="spop-color" id="SpopColorBlue" data-color="blue" onclick="setSelColor('blue')" style="background:#bfdbfe;border:2px solid #3b82f6;" title="Low / Blue"></button>
+    <button class="spop-color" id="SpopColorYellow" data-color="yellow" onclick="setSelColor('yellow')" style="background:#fef9c3;border:2px solid #eab308;" title="Medium / Yellow"></button>
+    <button class="spop-color" id="SpopColorRed" data-color="red" onclick="setSelColor('red')" style="background:#fecaca;border:2px solid #ef4444;" title="High / Red"></button>
+  </div>
+  <div style="display:flex;gap:4px;padding:6px 8px;">
+    <button class="spop-btn spop-note" onclick="addUserClause('note')">+ As Note</button>
+    <button class="spop-btn spop-revise" onclick="addUserClause('revise')">+ Revise</button>
+  </div>
+</div>
 
-  <script src="taskpane.js"></script>
+<!-- Error modal -->
+<div class="errmask" id="EM">
+  <div class="errmodal">
+    <div class="errmodal-head">
+      <div class="errmodal-icon">!</div>
+      <div class="errmodal-title" id="EM_title">Error</div>
+      <div class="errmodal-code" id="EM_code" style="display:none"></div>
+    </div>
+    <div class="errmodal-body">
+      <div class="errmodal-cause" id="EM_cause"></div>
+      <div class="errmodal-detail" id="EM_detail" style="display:none"></div>
+      <div class="errmodal-hint" id="EM_hint" style="display:none"></div>
+    </div>
+    <div class="errmodal-foot">
+      <button class="errmodal-close" onclick="closeErr()">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="TT"></div>
+
+<!-- Undo toast -->
+<div class="undo-toast" id="UT">
+  <span id="UT_msg"></span>
+  <button class="undo-btn" onclick="doUndo()">Undo</button>
+  <div class="undo-bar"><div class="undo-bar-fill" id="UT_bar"></div></div>
+</div>
+
+<input type="hidden" id="BASE" value="https://api.dify.ai/v1">
+<input type="file" id="FI" accept=".pdf,.docx" style="display:none" onchange="onFile(this)">
+
+<script>
+/* ══════════════════════════════════════════
+   STATE
+══════════════════════════════════════════ */
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
+
+var D = {
+  convId: lsGet('cr_conv_id') || null,
+  uid: lsGet('cr_uid') || ('u' + Math.random().toString(36).slice(2,8)),
+  file: null, fid: null,
+  wordText: null,   /* text read from Word via Office.js */
+  contractText: '',
+  clauses: [],      /* all clauses from LLM 1 */
+  decisions: {},    /* {idx: 'note'|'revise'|'ignore'} */
+  instructions: {}, /* {idx: 'user instruction text'} */
+  suggestions: {},  /* {idx: 'regenerated suggestion'} */
+  userClauses: [],  /* manually added clauses */
+  revDecs: {},      /* review table decisions {id: 'ok'|'no'|'nt'} */
+  noteDecs: {},     /* note table decisions {id: 'inc'|'dis'|'up'} */
+  undoStack: [],
+  undoTimer: null,
+  sendingFU: false
+};
+lsSet('cr_uid', D.uid);
+
+/* ══════════════════════════════════════════
+   UTILITIES
+══════════════════════════════════════════ */
+function g(id){ return document.getElementById(id); }
+function esc(v){ return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function key(){ return g('K').value.replace(/[^\x20-\x7E]/g,'').trim(); }
+function base(){ return g('BASE').value.replace(/\/$/,''); }
+
+function toast(msg){
+  var t=g('TT'); t.textContent=msg; t.classList.add('on');
+  setTimeout(function(){ t.classList.remove('on'); },2500);
+}
+
+function showErr(ctx, status, raw){
+  var ERR={
+    400:{title:'Bad Request',cause:'Request rejected by Dify. A required input may be missing or invalid.',hint:'If error says "list index out of range", the conversation_id may be missing. If it says "Variable not found", check that all input variables exist in Dify.'},
+    401:{title:'Authentication Failed',cause:'The API Key was rejected. It may be invalid or expired.',hint:'Re-copy the key from Dify → App → API Access. No leading/trailing spaces.'},
+    403:{title:'Access Denied',cause:'The API Key does not have permission for this resource.',hint:'Check that the key is an App Key and the app is published.'},
+    404:{title:'Endpoint Not Found',cause:'The Dify API endpoint could not be found.',hint:'Verify the Base URL matches your Dify deployment.'},
+    413:{title:'File Too Large',cause:'The uploaded file exceeds Dify size limit.',hint:'Try compressing or splitting the file.'},
+    422:{title:'Validation Error',cause:'Dify rejected the request due to a schema mismatch.',hint:'Check that input variable names match exactly what is defined in your Dify chatflow.'},
+    429:{title:'Rate Limit',cause:'Too many requests. Dify has throttled this request.',hint:'Wait a moment and retry.'},
+    500:{title:'Server Error',cause:'An internal error on Dify or the LLM provider.',hint:'Check Dify app logs. Common causes: LLM API key expired, model quota exceeded, or node config error.'},
+    502:{title:'Gateway Error',cause:'Upstream server returned an invalid response.',hint:'Usually transient. Wait and retry.'},
+    503:{title:'Service Unavailable',cause:'Dify or the LLM provider is temporarily down.',hint:'Check Dify status page.'}
+  };
+  var info=status&&ERR[status]||{};
+  g('EM_title').textContent=(ctx?ctx+': ':'')+( info.title||'Request Failed');
+  var ce=g('EM_code');
+  if(status){ce.textContent='HTTP '+status;ce.style.display='';}else{ce.style.display='none';}
+  g('EM_cause').textContent=info.cause||(status?'Unexpected error (HTTP '+status+').':'Could not reach the server.');
+  var de=g('EM_detail');
+  if(raw&&raw.length){var msg=raw;try{var p=JSON.parse(raw);msg=p.message||p.error||raw;}catch(e){}de.textContent=msg;de.style.display='';}else{de.style.display='none';}
+  var he=g('EM_hint');
+  if(info.hint){he.textContent=info.hint;he.style.display='';}else{he.style.display='none';}
+  g('EM').classList.add('on');
+  ld(false);
+}
+function closeErr(){ g('EM').classList.remove('on'); }
+
+function ld(on,msg){
+  g('LD').style.display=on?'flex':'none';
+  if(msg) g('LM').textContent=msg;
+}
+
+function chk(){
+  g('GO').disabled=!((D.file||D.wordText)&&key());
+}
+
+function onFile(inp){
+  var f=inp.files[0]; if(!f)return;
+  D.file=f; D.fileName=f.name; g('FN').textContent=f.name;
+  g('UB').classList.add('done'); g('UB').textContent='✓ '+f.name; chk();
+}
+
+function goPage(n){
+  /* Show/hide sidebar toggle based on page */
+  showAsideToggle(n>0);
+  /* Auto-collapse sidebar when entering review pages */
+  if(n>0){
+    var shell=document.querySelector('.shell');
+    if(shell && !shell.classList.contains('aside-collapsed')){
+      shell.classList.add('aside-collapsed');
+      var btn=g('AsideToggleBtn');
+      if(btn){ btn.style.display='inline-flex'; btn.innerHTML='&#9776; Show'; }
+    }
+
+  } else {
+    /* Restore sidebar on page 0 */
+    var shell=document.querySelector('.shell');
+    if(shell) shell.classList.remove('aside-collapsed');
+    var btn=g('AsideToggleBtn');
+    if(btn){ btn.style.display='none'; btn.innerHTML='&#9776;'; }
+
+  }
+  ['P0','P1','P2','P3'].forEach(function(id,i){
+    g(id).classList.toggle('on', i===n);
+  });
+  ['st0','st1','st2'].forEach(function(id,i){
+    var el=g(id);
+    el.classList.toggle('active', i===n-1);
+    el.classList.toggle('done', i<n-1);
+  });
+  /* When entering review table (P2), update left-side highlight colors */
+  if(n===2) setTimeout(applyReviewHighlights, 80);
+}
+
+/* ══════════════════════════════════════════
+   MARKDOWN RENDERER
+══════════════════════════════════════════ */
+function renderMd(text){
+  var s=text||'';
+  s=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  s=s.replace(/^#{6}\s(.+)$/gm,'<h6>$1</h6>');
+  s=s.replace(/^#{5}\s(.+)$/gm,'<h5>$1</h5>');
+  s=s.replace(/^#{4}\s(.+)$/gm,'<h4>$1</h4>');
+  s=s.replace(/^#{3}\s(.+)$/gm,'<h3>$1</h3>');
+  s=s.replace(/^#{2}\s(.+)$/gm,'<h2>$1</h2>');
+  s=s.replace(/^#\s(.+)$/gm,'<h1>$1</h1>');
+  s=s.replace(/^---+$/gm,'<hr>');
+  s=s.replace(/^&gt;\s(.+)$/gm,'<blockquote>$1</blockquote>');
+  s=s.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+  s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/\*(.+?)\*/g,'<em>$1</em>');
+  s=s.replace(/`(.+?)`/g,'<code>$1</code>');
+  s=s.replace(/^(\s*)[-*]\s(.+)$/gm,function(_,ind,c){return '<li style="margin-left:'+Math.floor(ind.length/2)*16+'px">'+c+'</li>';});
+  s=s.replace(/(<li[^>]*>.*<\/li>\n?)+/g,function(m){return '<ul>'+m+'</ul>';});
+  s=s.replace(/^\d+\.\s(.+)$/gm,'<li>$1</li>');
+  s=s.replace(/\n{2,}/g,'</p><p>');
+  s=s.replace(/\n/g,'<br>');
+  s='<p>'+s+'</p>';
+  s=s.replace(/<p><\/p>/g,'');
+  ['h1','h2','h3','h4','h5','h6','hr','ul','blockquote'].forEach(function(t){
+    s=s.replace(new RegExp('<p>(<'+t+'>)','g'),'$1');
+    s=s.replace(new RegExp('(</'+t+'>)<\/p>','g'),'$1');
+    if(t==='hr') s=s.replace(/<p>(<hr>)<\/p>/g,'$1');
+  });
+  return s;
+}
+
+/* ══════════════════════════════════════════
+   REDLINE RENDERER
+══════════════════════════════════════════ */
+function renderRedline(str){
+  var s=esc(str||'');
+  s=s.replace(/\[\+(.+?)\+\]/g,'<span class="rl-add">$1</span>');
+  s=s.replace(/\[-(.*?)-\]/g,'<span class="rl-del">$1</span>');
+  return s;
+}
+
+/* ══════════════════════════════════════════
+   UNDO SYSTEM
+══════════════════════════════════════════ */
+function showUndo(msg, undoFn){
+  clearTimeout(D.undoTimer);
+  D.undoStack = [{fn: undoFn}];
+  g('UT_msg').textContent=msg;
+  g('UT').classList.add('on');
+  var bar=g('UT_bar');
+  bar.style.transition='none'; bar.style.width='100%';
+  setTimeout(function(){ bar.style.transition='width 30s linear'; bar.style.width='0%'; },20);
+  D.undoTimer=setTimeout(function(){
+    g('UT').classList.remove('on');
+    D.undoStack=[];
+  },30000);
+}
+function doUndo(){
+  clearTimeout(D.undoTimer);
+  g('UT').classList.remove('on');
+  if(D.undoStack.length){ D.undoStack[0].fn(); D.undoStack=[]; }
+}
+
+/* ══════════════════════════════════════════
+   RUN — UPLOAD + INITIAL SCAN
+══════════════════════════════════════════ */
+/* ══════════════════════════════════════════
+   OFFICE.JS INIT
+══════════════════════════════════════════ */
+var _officeReady = false;
+if(typeof Office !== 'undefined'){
+  Office.onReady(function(info){
+    _officeReady = true;
+  });
+}
+
+function readFromWord(){
+  if(!_officeReady){
+    toast('Office 未就绪，请稍后重试');
+    return;
+  }
+  var btn = g('UB');
+  btn.textContent = '⏳ 读取中...';
+  btn.disabled = true;
+  Word.run(function(context){
+    var body = context.document.body;
+    body.load('text');
+    return context.sync().then(function(){
+      var text = body.text;
+      if(!text || text.trim().length < 50){
+        toast('文档内容太少，请确认 Word 文档已打开并有内容');
+        btn.textContent = '📄 从 Word 文档读取';
+        btn.disabled = false;
+        return;
+      }
+      D.wordText = text;
+      D.file = null; D.fid = null;
+      D.fileName = '当前Word文档';
+      g('FN').textContent = '✓ 已读取 ' + text.length + ' 字符';
+      btn.textContent = '✓ 重新读取';
+      btn.disabled = false;
+      g('GO').disabled = !key();
+      toast('文档读取成功，共 ' + text.length + ' 字符');
+    });
+  }).catch(function(e){
+    toast('读取失败：' + (e.message || String(e)));
+    btn.textContent = '📄 从 Word 文档读取';
+    btn.disabled = false;
+  });
+}
+
+function run(){
+  var k=key(); if(!k){toast('Please enter API Key');return;}
+  D._cancelled=false;
+  if(!D.file && !D.wordText){toast('请先从 Word 读取文档或上传文件');return;}
+  D.clauses=[]; D.decisions={}; D.instructions={}; D.suggestions={}; D.userClauses=[];
+  D.revDecs={}; D.noteDecs={};
+  D.convId=null; lsDel('cr_conv_id');
+  goPage(0);
+
+  var ct=g('CT').value, pr=g('PR').value.trim()||'Party A', ol=g('OL').value, ai=g('AI').value.trim();
+
+  function _doScan(inputs){
+    var body=JSON.stringify({
+      inputs:inputs,
+      query:'Contract type: '+ct+', Party role: '+pr+', Output language: '+ol+(ai?', Additional instructions: '+ai:'')+'. Please proceed.',
+      response_mode:'streaming', user:D.uid
+    });
+    D._taskId=null;
+    D._abortCtrl=new AbortController();
+    var convIdSet=false;
+    var fullAnswer='';
+    var buf='';
+    fetch(base()+'/chat-messages',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+k,'Content-Type':'application/json'},
+      body:body,
+      signal:D._abortCtrl.signal
+    }).then(function(resp){
+      if(!resp.ok){
+        return resp.text().then(function(t){ showErr('Contract Analysis',resp.status,t); });
+      }
+      var reader=resp.body.getReader();
+      var decoder=new TextDecoder();
+      function pump(){
+        reader.read().then(function(ref){
+          if(D._cancelled) return;
+          if(ref.done){
+            ld(false);
+            if(fullAnswer){ D._lastRaw=fullAnswer; parseScanResult(fullAnswer); }
+            else showErr('Contract Analysis',null,'Empty response from LLM.');
+            return;
+          }
+          buf+=decoder.decode(ref.value,{stream:true});
+          var lines=buf.split('\n');
+          buf=lines.pop();
+          lines.forEach(function(line){
+            line=line.trim();
+            if(!line.startsWith('data:')) return;
+            var json=line.slice(5).trim();
+            if(json==='[DONE]') return;
+            try{
+              var evt=JSON.parse(json);
+              if(evt.task_id&&!D._taskId) D._taskId=evt.task_id;
+              if(!convIdSet&&evt.conversation_id){D.convId=evt.conversation_id;lsSet('cr_conv_id',D.convId);convIdSet=true;}
+              if(evt.event==='message'&&evt.answer) fullAnswer+=evt.answer;
+            }catch(e){}
+          });
+          pump();
+        }).catch(function(e){
+          if(D._cancelled) return;
+          showErr('Contract Analysis',null,e.message||'Stream error');
+        });
+      }
+      pump();
+    }).catch(function(e){
+      if(D._cancelled) return;
+      showErr('Contract Analysis',null,e.message||'');
+    });
+  }
+
+  if(D.wordText){
+    /* Word 文档文本路径：直接传 contract_text，跳过文件上传 */
+    ld(true,'AI is scanning the contract...');
+    _doScan({
+      contract_type:ct, party_role:pr, output_language:ol,
+      additional_instructions:ai||'',
+      contract_text: D.wordText
+    });
+  } else {
+    /* 文件上传路径（原逻辑） */
+    ld(true,'Uploading file...');
+    var fd=new FormData(); fd.append('file',D.file); fd.append('user',D.uid);
+    var x=new XMLHttpRequest();
+    x.open('POST',base()+'/files/upload');
+    x.setRequestHeader('Authorization','Bearer '+k);
+    x.onload=function(){
+      if(x.status!==200&&x.status!==201){showErr('File Upload',x.status,x.responseText);return;}
+      D.fid=JSON.parse(x.responseText).id;
+      ld(true,'AI is scanning the contract...');
+      _doScan({
+        contract_type:ct, party_role:pr, output_language:ol,
+        additional_instructions:ai||'',
+        contract_file:{transfer_method:'local_file',upload_file_id:D.fid,type:'document'}
+      });
+    };
+    x.onerror=function(){showErr('File Upload',null,'');};
+    x.send(fd);
+  }
+}
+
+function cancelRun(){
+  D._cancelled=true;
+  /* Abort fetch stream */
+  if(D._abortCtrl){ D._abortCtrl.abort(); D._abortCtrl=null; }
+  if(D._currentXHR){ D._currentXHR.abort(); D._currentXHR=null; }
+  /* Tell Dify backend to stop the task */
+  if(D._taskId&&key()){
+    fetch(base()+'/chat-messages/'+D._taskId+'/stop',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+key(),'Content-Type':'application/json'},
+      body:JSON.stringify({user:D.uid})
+    }).catch(function(){});
+    D._taskId=null;
+  }
+  ld(false);
+  goPage(0);
+  toast('Review cancelled');
+}
+
+/* ══════════════════════════════════════════
+   PARSE & RENDER SCAN
+══════════════════════════════════════════ */
+function parseScanResult(raw){
+  var clauses=[];
+  var contractText='';
+
+  var scanIdx=raw.indexOf('SCAN_RESULT:');
+  var textIdx=raw.indexOf('CONTRACT_TEXT:');
+
+  if(scanIdx!==-1){
+    /* Extract JSON after SCAN_RESULT: */
+    var scanStr=raw.slice(scanIdx+12).trim();
+    /* Try direct JSON parse */
+    try{ clauses=JSON.parse(scanStr).clauses||[]; }catch(e){
+      /* Try to find first { ... } block */
+      var m=scanStr.match(/\{[\s\S]*\}/);
+      if(m){ try{ clauses=JSON.parse(m[0]).clauses||[]; }catch(e2){
+        /* Debug: show what we got after SCAN_RESULT: */
+        showErr('Parse Error',null,
+          'SCAN_RESULT: found but JSON invalid.\n\n'+
+          'Content after SCAN_RESULT: (first 400 chars):\n'+scanStr.slice(0,400)+
+          '\n\nCheck if code execution node returned an error.');
+        return;
+      }}
+    }
+    /* Extract contract text before SCAN_RESULT: */
+    var textPart=raw.slice(0, scanIdx).trim();
+    textPart=textPart.replace(/^(CONTRACT_TEXT:\s*)+/,'').trim();
+    /* Strip HTML tags from Word doc extraction */
+    textPart=textPart.replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#36;/g,'$').replace(/&nbsp;/g,' ');
+    contractText=textPart;
+  } else if(textIdx!==-1){
+    /* CONTRACT_TEXT present but no SCAN_RESULT — look for clauses JSON */
+    var jsonMatch=raw.match(/\{"clauses"\s*:\s*\[[\s\S]*?\]\s*\}/);
+    if(jsonMatch){
+      try{
+        var parsed=JSON.parse(jsonMatch[0]);
+        clauses=parsed.clauses||[];
+        var jStart=raw.indexOf(jsonMatch[0]);
+        contractText=raw.slice(textIdx+14, jStart).trim();
+      }catch(e){}
+    }
+    if(!clauses.length){
+      showErr('Parse Error',null,
+        'SCAN_RESULT: not found in response.\n\n'+
+        'Check Dify direct reply node:\n'+
+        'CONTRACT_TEXT:\n{{文档提取器.text}}\n\nSCAN_RESULT:\n{{代码执行.result}}\n\n'+
+        'Also check if code execution node has errors.\n\n'+
+        'Raw (first 800 chars):\n'+raw.slice(0,800));
+      return;
+    }
+  } else {
+    /* No prefix — pure JSON fallback */
+    try{
+      var m2=raw.match(/\{[\s\S]*\}/);
+      if(m2){
+        var obj=JSON.parse(m2[0]);
+        clauses=obj.clauses||(obj.SCAN_RESULT&&obj.SCAN_RESULT.clauses)||[];
+        if(obj.CONTRACT_TEXT) contractText=obj.CONTRACT_TEXT;
+      }
+    }catch(e){}
+    if(!clauses.length){
+      showErr('Parse Error',null,'Could not parse scan result.\n\nRaw (first 600 chars):\n'+raw.slice(0,600));
+      return;
+    }
+  }
+
+  if(!clauses.length){
+    var rawPreview = raw ? raw.slice(0,800) : '(empty)';
+    var hasScan = raw && raw.indexOf('SCAN_RESULT:') !== -1;
+    var hasText = raw && raw.indexOf('CONTRACT_TEXT:') !== -1;
+    showErr('Parse Error',null,
+      'Parsed successfully but clauses array is empty.\n\n'+
+      'Has CONTRACT_TEXT: ' + hasText + '\n'+
+      'Has SCAN_RESULT: ' + hasScan + '\n\n'+
+      'Raw response (first 800 chars):\n' + rawPreview);
+    return;
+  }
+
+  /* 按原文出现顺序排列clauses */
+  if(contractText){
+    var normForSort = contractText.replace(/\s+/g,' ').toLowerCase();
+    clauses.forEach(function(c){
+      if(!c.original){ c._pos=999999; return; }
+      var normOrig = c.original.replace(/\s+/g,' ').toLowerCase();
+      var pos = normForSort.indexOf(normOrig.slice(0,60));
+      if(pos<0){ pos = normForSort.indexOf(normOrig.slice(0,30)); }
+      c._pos = pos<0 ? 999999 : pos;
+    });
+    clauses.sort(function(a,b){ return a._pos - b._pos; });
+  }
+  D.clauses=clauses;
+  D.contractText=contractText;
+
+  if(contractText){
+    g('ScanBody').innerHTML=buildContractHtml(contractText, clauses);
+  } else {
+    g('ScanBody').innerHTML='<span style="color:var(--ink-muted);font-style:italic;padding:20px;display:block;">Contract text not available.</span>';
+  }
+
+  renderScan();
+  goPage(1);
+  saveHistRecord();
+  /* Sync scroll: reposition cards whenever left panel scrolls */
+  var sl = g('ScanLeft');
+  if(sl && !sl._scrollBound){
+    sl._scrollBound = true;
+    sl.addEventListener('scroll', function(){
+      positionCards();
+      g('SelPopup').classList.remove('show');
+    });
+  }
+  /* Reposition on window resize */
+  if(!window._resizeBound){
+    window._resizeBound = true;
+    window.addEventListener('resize', function(){ positionCards(); positionReviewCards(); });
+  }
+}
+
+
+function renderScan(){
+  renderRiskList();
+  updateScanProg();
+  /* Position cards after a brief paint delay */
+  setTimeout(positionCards, 80);
+}
+
+function renderRiskList(){
+  var list=g('RiskList');
+  list.innerHTML='';
+  /* Only AI-detected clauses go into the positioned RiskList.
+     User-added clauses go directly into the bottom unanchored panel — never into RiskList. */
+  D.clauses.forEach(function(c,i){ list.appendChild(makeRiskCard(c,i,false)); });
+  g('ScanCount').textContent=(D.clauses.length+D.userClauses.length)+' items';
+
+  /* All cards start collapsed; active one gets expanded by positionCards */
+  var activeIdx=D._activeRiskIdx;
+  D.clauses.forEach(function(c,i){
+    var card=g('rc'+i); if(!card)return;
+    var dec=D.decisions[i]||'';
+    var isActive=(String(i)===String(activeIdx));
+    card.classList.toggle('decided', !!dec && !isActive);
+    card.classList.toggle('collapsed', !isActive);
+  });
+
+  /* Pre-create user clause cards in RiskList for positionCards */
+  renderUserClauses();
+}
+
+function renderUserClauses(){
+  /* User clauses are now positioned inline by positionCards().
+     This function just pre-creates their cards in RiskList so positionCards can find them.
+     Cards without a highlight span will fall to unanchored panel (handled in positionCards). */
+  D.userClauses.forEach(function(c,i){
+    var idx = 'u'+i;
+    if(!g('rc'+idx)){
+      var card = makeRiskCard(c, idx, true);
+      card.classList.add('user-inline');
+      var list = g('RiskList');
+      if(list) list.appendChild(card);
+    }
+  });
+}
+
+/* ══════════════════════════════════════════
+   POSITION CARDS TO ALIGN WITH HIGHLIGHTS
+══════════════════════════════════════════ */
+function getDocOffsetTop(el, container){
+  /* Static offset of el's top relative to container, independent of scroll */
+  var top = 0;
+  var cur = el;
+  while(cur && cur !== container){
+    top += cur.offsetTop;
+    cur = cur.offsetParent;
+  }
+  return top;
+}
+
+function positionCards(){
+  var scanLeft = g('ScanLeft');
+  var scanBody = g('ScanBody');
+  var riskList = g('RiskList');
+  var unanchored = g('UnanchoredCards');
+  if(!scanLeft || !scanBody || !riskList) return;
+
+  var scrollTop = scanLeft.scrollTop;
+  var rightHdr = g('ScanRight') && g('ScanRight').querySelector('.scan-right-hdr');
+  var hdrH = rightHdr ? rightHdr.offsetHeight : 0;
+  var slRect = scanLeft.getBoundingClientRect();
+  var activeIdx = D._activeRiskIdx;
+
+  /* Slide riskList up to mirror left scroll */
+  riskList.style.marginTop = (-scrollTop) + 'px';
+
+  var slots = [];
+  var unanchoredIdxs = [];
+
+  function processClause(c, idx, isUser){
+    var card = g('rc'+idx);
+    /* For user clauses, card may not exist yet in RiskList — create it */
+    if(!card && isUser){
+      card = makeRiskCard(c, idx, true);
+      card.classList.add('user-inline');
+      riskList.appendChild(card);
+    }
+    if(!card) return;
+
+    var hl = scanBody.querySelector('.hl-click[data-idx="'+idx+'"]');
+    if(!hl){
+      unanchoredIdxs.push(idx);
+      card.style.visibility = 'hidden';
+      card.style.top = '-9999px';
+      return;
+    }
+    card.style.visibility = 'visible';
+    var hlRect = hl.getBoundingClientRect();
+    var idealTop = (hlRect.top - slRect.top) + scrollTop - hdrH;
+    var isActive = (String(idx) === String(activeIdx));
+    /* Collapse non-active cards so they take less vertical space */
+    card.classList.toggle('collapsed', !isActive);
+    slots.push({card:card, idealTop:Math.max(0, idealTop), idx:idx, isActive:isActive});
+  }
+
+  D.clauses.forEach(function(c,i){ processClause(c,i,false); });
+  /* User clauses: position inline if they have a highlight, else bottom panel */
+  D.userClauses.forEach(function(c,i){ processClause(c,'u'+i,true); });
+
+  slots.sort(function(a,b){ return a.idealTop - b.idealTop; });
+
+  var cursor = 0;
+  slots.forEach(function(s){
+    var top = Math.max(s.idealTop, cursor);
+    s.card.style.top = top + 'px';
+    /* Collapsed cards ~38px tall, expanded measure actual */
+    var cardH = s.isActive ? (s.card.offsetHeight || 150) : 40;
+    cursor = top + cardH + 6;
+  });
+
+  if(slots.length){
+    var last = slots[slots.length-1];
+    var lastH = last.isActive ? (last.card.offsetHeight || 150) : 40;
+    riskList.style.height = (parseInt(last.card.style.top) + lastH + 60) + 'px';
+  }
+
+  /* ── Render AI-unmatched clauses into unanchored panel ── */
+  if(unanchored){
+    var header = g('UnanchoredHdr');
+    var body = g('UnanchoredBody');
+    /* Remove old AI-unmatched entries (not user-clause-entry ones) */
+    if(body){
+      var oldEntries = body.querySelectorAll('.ai-unmatched-entry');
+      oldEntries.forEach(function(el){ el.remove(); });
+    }
+    var hasContent = unanchoredIdxs.length > 0 || D.userClauses.length > 0;
+    if(hasContent){
+      unanchored.style.display = 'block';
+      if(header) header.style.display = 'flex';
+      var total = unanchoredIdxs.length + D.userClauses.length;
+      g('UnanchoredCount').textContent = total;
+    } else {
+      unanchored.style.display = 'none';
+      if(header) header.style.display = 'none';
+    }
+    if(body && unanchoredIdxs.length){
+      unanchoredIdxs.forEach(function(idx){
+        var c = D.clauses[parseInt(idx)];
+        if(!c) return;
+        var wrapper = document.createElement('div');
+        wrapper.className = 'ai-unmatched-entry';
+        var card = makeRiskCard(c, idx, false);
+        card.style.position = 'static';
+        card.style.visibility = 'visible';
+        card.style.top = 'auto';
+        card.style.margin = '0';
+        card.style.width = 'auto';
+        card.style.borderRadius = '0';
+        card.style.border = 'none';
+        card.style.borderBottom = '1px solid var(--border-light)';
+        card.style.boxShadow = 'none';
+        card.style.background = 'transparent';
+        wrapper.appendChild(card);
+        body.appendChild(wrapper);
+      });
+    }
+  }
+}
+
+
+function makeRiskCard(c, idx, isUser){
+  var div=document.createElement('div');
+  var dec=D.decisions[idx]||'';
+  /* rl-border-* drives the colored left border on collapsed cards */
+  var borderCls = isUser ? 'rl-border-user' :
+    (c.level==='high'?'rl-border-high': c.level==='mid'?'rl-border-mid':'rl-border-low');
+  div.className='risk-card '+borderCls+(isUser?' user-added':'')+(dec?' dec-'+dec:'');
+  div.id='rc'+idx;
+  div.setAttribute('onclick','selectRisk(\''+idx+'\')');
+  div.style.cursor='pointer';
+  /* For user clauses, map color to level for visual consistency */
+  var lvl;
+  if(isUser){
+    lvl = c.userColor==='red'?'high': c.userColor==='yellow'?'mid': c.userColor==='blue'?'low':'user';
+  } else {
+    lvl = c.level||'low';
+  }
+  var lvlLbl=lvl==='high'?'High':lvl==='mid'?'Medium':lvl==='low'?'Low':'Added';
+  /* suggestion: AI's revision idea (from LLM-初筛) */
+  var sug=c.suggestion||c.action_type||'';
+  var sugHtml=sug?('<div class="risk-suggestion"><span class="risk-sug-lbl">\u2192 </span>'+esc(sug)+'</div>'):'';
+  div.innerHTML=
+    '<div class="risk-card-head" onclick="selectRisk(\''+idx+'\')">'
+    +(c.clause_ref?'<span class="risk-ref">'+esc(c.clause_ref)+'</span>':'')
+    +'<button class="hl-edit-btn" id="hledit'+idx+'" onclick="event.stopPropagation();startHlEdit(\''+idx+'\')" title="Re-select highlight range">✎</button>'
+    +'</div>'
+    +'<div class="risk-name" onclick="selectRisk(\''+idx+'\')" style="cursor:pointer;">'+esc(c.clause_name||'Unnamed Clause')+'</div>'
+    +'<div class="risk-issue" onclick="selectRisk(\''+idx+'\')" style="cursor:pointer;">'+esc(c.issue||'')+'</div>'
+    +sugHtml
+    +'<div class="risk-actions">'
+    +'<button class="ract'+(dec==='note'?' sel-note':'')+'\" onclick="event.stopPropagation();setDec(\''+idx+'\',\'note\')">As Note</button>'
+    +'<button class="ract'+(dec==='revise'?' sel-revise':'')+'\" onclick="event.stopPropagation();setDec(\''+idx+'\',\'revise\')">Revise</button>'
+    +'<button class="ract'+(dec==='ignore'?' sel-ignore':'')+'\" onclick="event.stopPropagation();setDec(\''+idx+'\',\'ignore\')">Ignore</button>'
+    +'</div>'
+    +'<div class="revise-input-wrap'+(dec==='revise'?' open':'')+'\" id="riw'+idx+'\">'
+    +'<textarea class="revise-input" id="ri'+idx+'\" placeholder="Leave a comment for AI (optional)..." oninput="D.instructions[\''+idx+'\']=this.value">'+esc(D.instructions[idx]||'')+'</textarea>'
+    +'</div>';
+  return div;
+}
+
+function setDec(idx, dec){
+  var prev=D.decisions[idx];
+  if(prev===dec){ D.decisions[idx]=''; }
+  else{ D.decisions[idx]=dec; }
+  /* update card */
+  var card=g('rc'+idx);
+  if(!card)return;
+  card.querySelectorAll('.ract').forEach(function(b){ b.className='ract'; });
+  var btns=card.querySelectorAll('.ract');
+  var labels=['note','revise','ignore'];
+  var clss=['sel-note','sel-revise','sel-ignore'];
+  var cur=D.decisions[idx];
+  labels.forEach(function(l,i){ if(cur===l) btns[i].classList.add(clss[i]); });
+  var riw=g('riw'+idx);
+  if(riw){
+    riw.classList.toggle('open', cur==='revise'||cur==='note');
+    if(cur==='revise'||cur==='note'){
+      var ta=g('ri'+idx);
+      if(ta) setTimeout(function(){ ta.focus(); }, 50);
+      setTimeout(positionCards, 80);
+    }
+  }
+  // 取消决策立刻恢复颜色；有决策且不是当前active则半透明
+  var isActive=(String(idx)===String(D._activeRiskIdx));
+  card.classList.toggle('decided', !!cur && !isActive);
+  updateScanProg();
+  /* Reposition after state change (card may resize) */
+  setTimeout(positionCards, 60);
+}
+
+
+function updateScanProg(){
+  var total=D.clauses.length+D.userClauses.length;
+  var done=0;
+  Object.values(D.decisions).forEach(function(v){ if(v) done++; });
+  g('ScanProg').innerHTML='Decided: <strong>'+done+'</strong> / '+total;
+  g('GenTableBtn').disabled=(done===0);
+  // 更新进度条
+  var pct=total>0?Math.round(done/total*100):0;
+  var bar=g('ProgBarFill');
+  if(bar) bar.style.width=pct+'%';
+}
+
+function updateCardDecidedState(){
+  // 当前active卡片不变半透明，其他已决策的变半透明
+  var activeIdx=D._activeRiskIdx;
+  D.clauses.forEach(function(c,i){
+    var card=g('rc'+i); if(!card)return;
+    var dec=D.decisions[i]||'';
+    var isActive=(String(i)===String(activeIdx));
+    card.classList.toggle('decided', !!dec && !isActive);
+  });
+  D.userClauses.forEach(function(c,i){
+    var idx='u'+i;
+    var card=g('rc'+idx); if(!card)return;
+    var dec=D.decisions[idx]||'';
+    var isActive=(idx===String(activeIdx));
+    card.classList.toggle('decided', !!dec && !isActive);
+  });
+}
+
+/* ══════════════════════════════════════════
+   CONTRACT TEXT HIGHLIGHT
+══════════════════════════════════════════ */
+/* 模糊匹配评分：返回0-1，基于公共字符数/窗口长度 */
+function fuzzyScore(a, b){
+  if(!a||!b) return 0;
+  /* Token-based matching: split into words, count common words */
+  var wa = a.toLowerCase().split(/\s+/).filter(function(w){ return w.length>3; });
+  var wb = b.toLowerCase().split(/\s+/).filter(function(w){ return w.length>3; });
+  if(!wa.length||!wb.length) return 0;
+  var setB = {};
+  wb.forEach(function(w){ setB[w]=true; });
+  var common = 0;
+  wa.forEach(function(w){ if(setB[w]) common++; });
+  return common / Math.max(wa.length, wb.length);
+}
+
+/* Extract reliable anchor: skip leading clause numbers, take first meaningful phrase */
+function extractAnchor(s){
+  /* Remove leading clause ref like "3.1.5.", "Article 8.", "(i)" etc */
+  var clean = s.replace(/^\s*[\d]+[\d.]*\s*/,'')
+                .replace(/^(article|clause|section)\s+[\d.]+\s*/i,'')
+                .replace(/^\s*[(（][^\s)）]+[)）]\s*/i,'')
+                .trim();
+  /* Take first 40 meaningful chars */
+  return clean.slice(0,40).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff\s]/g,' ').replace(/\s+/g,' ').trim();
+}
+
+function buildContractHtml(text, items){
+  if(!text) return '<span style="color:var(--ink-muted);font-style:italic;">Contract text not available.</span>';
+
+  /* ── Clean up text ── */
+  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  /* Strip HTML tags entirely (Word doc extraction produces <table> etc.) */
+  text = text.replace(/<[^>]+>/g,' ');
+  /* Decode HTML entities */
+  text = text.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#36;/g,'$').replace(/&nbsp;/g,' ');
+  /* Remove Markdown table rows (PDF extraction artifact) */
+  text = text.replace(/^\|.*\|?\s*$/gm,'');
+  /* Strip Markdown heading markers but keep text */
+  text = text.replace(/^#{1,6}\s+/gm,'');
+  /* Strip bold markers **text** */
+  text = text.replace(/\*\*([^*]+)\*\*/g,'$1');
+  /* Remove HTML comments like <!-- -2- --> */
+  text = text.replace(/<!--[\s\S]*?-->/g,'');
+  /* Collapse extra blank lines */
+  text = text.replace(/\n{3,}/g,'\n\n').trim();
+
+  /* ── Build normalized text for matching ── */
+  function normalizeStr(s){
+    return s.replace(/\*\*([^*]+)\*\*/g,'$1')  /* strip bold */
+            .replace(/^#{1,6}\s+/gm,'')           /* strip headings */
+            .replace(/[\t\u00a0\u3000]/g,' ')    /* tabs & special spaces */
+            .replace(/^\s*[\d]+\.\s*/gm,'')      /* strip leading "1. " numbers */
+            .replace(/^\s*[(（][\da-zA-Z]+[)）]\s*/gm,'') /* strip "(i) " prefixes */
+            .replace(/[\u2018\u2019\u201c\u201d]/g,"'")  /* smart quotes -> plain */
+            .replace(/\s+/g,' ').trim().toLowerCase();
+  }
+
+  var cleanText = text;
+
+  /* ── 两种normalize ──
+     softNorm: 只折叠空白，保留所有字符，用于建mapping
+     hardNorm: 激进处理，用于匹配LLM可能删掉编号/制表符的original
+  */
+  function softNorm(s){
+    return s.replace(/[\t\u00a0\u3000]/g,' ')
+            .replace(/[\u2018\u2019\u201c\u201d]/g,"'")
+            .replace(/\s+/g,' ').trim().toLowerCase();
+  }
+
+  var softText = softNorm(cleanText);
+
+  /* Build char mapping: softText index → cleanText index */
+  var mapping = [];
+  var ci=0, cni=0;
+  while(cni < softText.length && ci < cleanText.length){
+    /* skip chars consumed by softNorm (tabs→space already handled above) */
+    mapping[cni] = ci;
+    cni++; ci++;
+  }
+  var origEnd = ci;
+
+  /* ── Match each clause to text ── */
+  var regions = [];
+  items.forEach(function(c, idx){
+    if(!c.original) return;
+
+    /* Try matching strategies from most precise to least */
+    var pos = -1;
+    var matchLen = 0;
+
+    /* Strategy 1: softNorm exact match on original */
+    var softHl = softNorm(c.original);
+    if(softHl.length >= 8){
+      pos = softText.indexOf(softHl);
+      if(pos >= 0) matchLen = softHl.length;
+    }
+
+    /* Strategy 2: softNorm prefix match (progressively shorter) */
+    if(pos < 0 && softHl.length >= 30){
+      var tryLen = Math.min(softHl.length, 100);
+      while(tryLen >= 30 && pos < 0){
+        var prefix = softHl.slice(0, tryLen);
+        pos = softText.indexOf(prefix);
+        if(pos >= 0){ matchLen = tryLen; }
+        tryLen -= 10;
+      }
+    }
+
+    /* Strategy 3: hardNorm — strip numbers/tabs then search */
+    if(pos < 0){
+      var hardHl = normalizeStr(c.original);
+      if(hardHl.length >= 8){
+        var hardText = normalizeStr(cleanText);
+        /* Try progressively shorter prefixes of hardNorm */
+        var tryLens = [80, 60, 40, 25];
+        for(var ti=0; ti<tryLens.length && pos<0; ti++){
+          if(hardHl.length < tryLens[ti]) continue;
+          var hslice = hardHl.slice(0, tryLens[ti]);
+          var hpos = hardText.indexOf(hslice);
+          if(hpos >= 0){
+            /* Map back: find same text in softText */
+            var anchor2 = hslice.replace(/[^a-z0-9\s\u4e00-\u9fff]/g,'').replace(/\s+/g,' ').trim();
+            if(anchor2.length > 8){
+              var apos = softText.indexOf(anchor2);
+              if(apos >= 0){ pos=apos; matchLen=Math.min(hardHl.length, softText.length-apos); }
+            }
+          }
+        }
+      }
+    }
+
+    /* Strategy 3b: extractAnchor — skip clause numbers, match meaningful start */
+    if(pos < 0){
+      var anchor3 = extractAnchor(c.original);
+      if(anchor3.length >= 10){
+        var apos3 = softText.indexOf(anchor3);
+        if(apos3 >= 0){
+          pos = apos3;
+          matchLen = Math.min(softNorm(c.original).length, softText.length - apos3);
+        }
+      }
+    }
+
+    /* Strategy 4: first sentence match */
+    if(pos < 0){
+      var softHl2 = softNorm(c.original);
+      var dotIdx = softHl2.indexOf('. ');
+      if(dotIdx > 20){
+        var firstSent = softHl2.slice(0, dotIdx+1);
+        pos = softText.indexOf(firstSent);
+        if(pos >= 0) matchLen = firstSent.length;
+      }
+    }
+
+    /* Strategy 5: fuzzy token-based sliding window */
+    if(pos < 0){
+      var fuzzHl = softNorm(c.original);
+      if(fuzzHl.length >= 20){
+        var winLen = Math.min(fuzzHl.length, 200);
+        var searchStr = fuzzHl.slice(0, winLen);
+        var bestScore = 0, bestPos = -1;
+        var step = Math.max(3, Math.floor(winLen/10));
+        for(var si=0; si<=softText.length-winLen; si+=step){
+          var win = softText.slice(si, si+winLen);
+          var score = fuzzyScore(searchStr, win);
+          if(score > bestScore){ bestScore=score; bestPos=si; }
+        }
+        if(bestScore >= 0.45){ pos=bestPos; matchLen=winLen; }
+      }
+    }
+
+    if(pos < 0 || matchLen === 0) return;
+
+    /* Check overlap */
+    var overlap = false;
+    regions.forEach(function(r){
+      if(pos < r.normEnd && pos+matchLen > r.normStart) overlap = true;
+    });
+    if(overlap) return;
+
+    /* ── Find oStart in cleanText directly ──
+       softText pos is unreliable due to whitespace collapsing in mapping.
+       Instead search cleanText using the original string directly. */
+    var oStart = -1;
+
+    /* Try direct indexOf with progressively shorter prefixes */
+    var origStr = c.original || '';
+    var tryPrefixes = [
+      origStr.slice(0, 80),
+      origStr.slice(0, 50),
+      origStr.slice(0, 30),
+      origStr.replace(/^\s*[\d.]+\s*/,'').slice(0, 40), /* strip leading clause number */
+      origStr.replace(/^\s*[\d.]+\s*/,'').slice(0, 20)
+    ];
+    for(var pi=0; pi<tryPrefixes.length && oStart<0; pi++){
+      var pref = tryPrefixes[pi].replace(/\s+/g,' ').trim();
+      if(pref.length < 10) continue;
+      var cpos = cleanText.indexOf(pref);
+      if(cpos >= 0) oStart = cpos;
+    }
+
+    /* Fallback: use mapping if direct search failed */
+    if(oStart < 0) oStart = mapping[pos] !== undefined ? mapping[pos] : pos;
+    if(oStart < 0) return;
+
+    /* oEnd: count non-whitespace chars forward from oStart */
+    var origNonWS = origStr.replace(/\s/g,'').length;
+    var counted = 0;
+    var oEnd = oStart;
+    while(oEnd < cleanText.length && counted < origNonWS){
+      if(!/\s/.test(cleanText[oEnd])) counted++;
+      oEnd++;
+    }
+    while(oEnd < cleanText.length && /\s/.test(cleanText[oEnd])) oEnd++;
+    oEnd = Math.min(oEnd, cleanText.length);
+
+    if(origNonWS === 0) return;
+
+    regions.push({
+      normStart: pos, normEnd: pos+matchLen,
+      origStart: oStart, origEnd: oEnd,
+      idx: idx, level: c.level||'low'
+    });
+  });
+
+  regions.sort(function(a,b){ return a.origStart - b.origStart; });
+
+  /* ── Build annotated HTML ── */
+  var raw = '', cursor = 0;
+  regions.forEach(function(r){
+    if(r.origStart > cursor) raw += esc(cleanText.slice(cursor, r.origStart));
+    var lvl = r.level==='high'?'high': r.level==='mid'?'mid':'low';
+    raw += '<span class="hl-'+lvl+' hl-click" data-idx="'+r.idx+'" onclick="selectRisk(\''+r.idx+'\')" title="Click for details">'
+         + esc(cleanText.slice(r.origStart, r.origEnd)) + '</span>';
+    cursor = r.origEnd;
+  });
+  if(cursor < cleanText.length) raw += esc(cleanText.slice(cursor));
+
+  /* ── Smart Word-like paragraph rendering ── */
+  function classifyLine(line){
+    var t = line.trim();
+    if(!t) return {type:'blank', html:''};
+
+    /* ── 附件/Annex/Schedule titles ── */
+    if(/^附件[一二三四五六七八九十\d]+/.test(t) ||
+       /^(Annex|Schedule|Appendix)\s*[\dA-Z一二三四五六七八九十]/i.test(t)){
+      return {type:'h1', html:t};
+    }
+    /* ── Chinese section headers: 一、二、.../ 第X条 / 第X章 ── */
+    if(/^[一二三四五六七八九十百]+[、．.]/.test(t) ||
+       /^第[一二三四五六七八九十百\d]+[条章节款项]/.test(t)){
+      return {type:'h2', html:t};
+    }
+    /* ── English section headers ── */
+    if(/^(ARTICLE|SECTION|CHAPTER|ANNEX|APPENDIX|SCHEDULE)\b/i.test(t) ||
+       /^[IVX]+\.\s+[A-Z]/.test(t)){
+      return {type:'h1', html:t};
+    }
+    /* ── Numbered clauses: 1. / 1) / (1) / 1、 ── */
+    if(/^\d+[\.、）)]\s/.test(t) || /^[（(]\d+[)）]\s/.test(t)){
+      return {type:'clause', html:t};
+    }
+    /* ── Sub-clauses: (a) / (i) / a. / i. ── */
+    if(/^[（(][a-zA-Z][)）]\s/.test(t) || /^[a-zA-Z]\.\s/.test(t) ||
+       /^[（(][ivxlIVXL]+[)）]\s/.test(t)){
+      return {type:'subclause', html:t};
+    }
+    /* ── Deep sub: 1.1.1 ── */
+    if(/^\d+\.\d+\.\d+/.test(t)){
+      return {type:'subsubclause', html:t};
+    }
+    /* ── Sub-numbered: 1.1 / 2.3 ── */
+    if(/^\d+\.\d+\s/.test(t)){
+      return {type:'subclause', html:t};
+    }
+
+    /* ── Table row detection ──
+       Key rules:
+       1. Must have >= 3 pipe-separated cells
+       2. Line must NOT start with a party label (甲方/乙方/Party A/合计 etc.)
+       3. No cell longer than 150 chars (long cells = paragraph text mistakenly joined)
+       4. NOT a plain "Key：Value | ..." line (detected by having exactly 1 colon-style cell)
+       5. Contains only data-like content, not narrative text
+    ── */
+    var rawPipes = t.split('|');
+    var pipeParts = rawPipes.map(function(s){return s.trim();}).filter(function(s){return s.length>0;});
+    var isPartyLine = /^(甲方|乙方|丙方|丁方|供方|需方|Party\s*[ABCDE]|Principal|Agent|买方|卖方|委托方|受托方)/i.test(t);
+    var isSumLine = /^(人民币|合计|总计|小计|金额|RMB|Total|Amount)/i.test(t);
+    /* Data rows starting with a row number (1 | / 2 | ) are always table rows */
+    var isNumberedDataRow = /^\d{1,3}\s*\|/.test(t) && pipeParts.length >= 3;
+    /* Header rows: all cells short and look like labels */
+    var allCellsShort = pipeParts.every(function(p){ return p.length <= 30; });
+    var isHeaderRow = pipeParts.length >= 3 && allCellsShort && !isPartyLine && !isSumLine;
+    /* Normal table row: 3+ short cells */
+    var hasLongCell = pipeParts.some(function(p){ return p.length > 200; });
+    var isNormalTableRow = pipeParts.length >= 3 && !isPartyLine && !isSumLine
+      && !hasLongCell && !(/https?:\/\//.test(t));
+
+    if(isNumberedDataRow || isHeaderRow || isNormalTableRow){
+      return {type:'tablerow', html:t, cells: pipeParts};
+    }
+    /* ── Party/signature lines → plain para ── */
+    if(isPartyLine || isSumLine){
+      return {type:'para', html:t};
+    }
+    /* ── Centered short lines ── */
+    if(t.length < 40 && /^[（(].*[)）]$/.test(t)){
+      return {type:'center', html:t};
+    }
+    return {type:'para', html:t};
+  }
+
+  function renderHighlighted(rawHtml){
+    /* rawHtml already has <span> highlight tags — just wrap in display unit */
+    return rawHtml;
+  }
+
+  /* Split raw (which has highlight spans) back into lines carefully */
+  /* We need to split on \n but preserve spans, so split the cleanText by lines
+     and remap spans. Easier: split raw on literal \n */
+  var lines = raw.split('\n');
+
+  /* Group consecutive table rows */
+  var blocks = []; /* [{type, lines:[]}] */
+  var i = 0;
+  while(i < lines.length){
+    var cl = classifyLine(lines[i]);
+    if(cl.type === 'tablerow'){
+      var tbl = [lines[i]];
+      while(i+1 < lines.length && classifyLine(lines[i+1]).type === 'tablerow') tbl.push(lines[++i]);
+      blocks.push({type:'table', lines:tbl});
+    } else if(cl.type === 'blank'){
+      blocks.push({type:'blank', lines:[lines[i]]});
+    } else {
+      /* Merge continuation lines into previous non-blank block if they don't start a new classified line */
+      if(blocks.length > 0 && blocks[blocks.length-1].type !== 'table' && blocks[blocks.length-1].type !== 'blank'){
+        var prev = blocks[blocks.length-1];
+        var nextCl = classifyLine(lines[i]);
+        if(nextCl.type === prev.type || (nextCl.type === 'para' && prev.type !== 'blank')){
+          /* Same type — check if it looks like a continuation (no leading number/heading) */
+          if(nextCl.type === 'para' || prev.lines.length === 1){
+            /* Append as continuation of same paragraph */
+          }
+        }
+        blocks.push({type:cl.type, lines:[lines[i]]});
+      } else {
+        blocks.push({type:cl.type, lines:[lines[i]]});
+      }
+    }
+    i++;
+  }
+
+  /* Build HTML from blocks */
+  var html = '';
+  var prevType = '';
+  blocks.forEach(function(b){
+    if(b.type === 'blank'){
+      if(prevType && prevType !== 'blank') html += '<div class="ct-blank"></div>';
+      prevType = 'blank';
+      return;
+    }
+    var lineHtml = b.lines.join('<br>');
+    switch(b.type){
+      case 'h1':
+        html += '<div class="ct-h1">'+lineHtml+'</div>';
+        break;
+      case 'h2':
+        html += '<div class="ct-h2">'+lineHtml+'</div>';
+        break;
+      case 'h3':
+        html += '<div class="ct-h3">'+lineHtml+'</div>';
+        break;
+      case 'clause':
+        html += '<div class="ct-clause">'+lineHtml+'</div>';
+        break;
+      case 'subclause':
+        html += '<div class="ct-subclause">'+lineHtml+'</div>';
+        break;
+      case 'subsubclause':
+        html += '<div class="ct-subsubclause">'+lineHtml+'</div>';
+        break;
+      case 'center':
+        html += '<div class="ct-center">'+lineHtml+'</div>';
+        break;
+      case 'meta': /* fall through to normal para */
+      case 'table':
+        html += '<table class="ct-table">';
+        b.lines.forEach(function(row, ri){
+          /* Determine if this is a header row (all short text, no numbers at start) */
+          var plainCells = row.replace(/<[^>]+>/g,'').split('|')
+            .map(function(c){return c.trim();}).filter(function(c){return c.length>0;});
+          var isHeader = ri===0 && plainCells.length>0 && !/^\d/.test(plainCells[0])
+            && plainCells.every(function(c){return c.length<=30;});
+          var tag = isHeader ? 'th' : 'td';
+          html += '<tr>';
+          /* Split on | but preserve highlight spans — split the raw html string */
+          var rawCells = row.split('|');
+          /* Filter leading empty if line starts with | */
+          if(rawCells.length > 0 && rawCells[0].trim()==='') rawCells.shift();
+          rawCells.forEach(function(rc){
+            html += '<'+tag+' style="min-width:40px;">'+rc.trim()+'</'+tag+'>';
+          });
+          html += '</tr>';
+        });
+        html += '</table>';
+        break;
+      default: /* para */
+        html += '<p class="ct-para">'+lineHtml+'</p>';
+    }
+    prevType = b.type;
+  });
+  return html;
+}
+function selectRisk(idx){
+  var prevIdx=D._activeRiskIdx;
+  D._activeRiskIdx=String(idx);
+
+  /* Update active state on all cards */
+  document.querySelectorAll('.risk-card').forEach(function(el){ el.classList.remove('active'); });
+  var card=g('rc'+idx);
+  if(card){ card.classList.add('active'); card.classList.remove('decided'); }
+
+  if(prevIdx!==undefined && prevIdx!==String(idx)){
+    var prevCard=g('rc'+prevIdx);
+    if(prevCard){ var prevDec=D.decisions[prevIdx]||''; prevCard.classList.toggle('decided', !!prevDec); }
+  }
+
+  /* Highlight spans */
+  document.querySelectorAll('.hl-click').forEach(function(el){ el.classList.remove('hl-selected'); });
+  document.querySelectorAll('.hl-click[data-idx="'+idx+'"]').forEach(function(el){ el.classList.add('hl-selected'); });
+
+  /* Scroll left panel so highlight is near top */
+  var scanLeft=g('ScanLeft');
+  var hl=scanLeft && scanLeft.querySelector('.hl-click[data-idx="'+idx+'"]');
+  if(hl && scanLeft){
+    var slr = scanLeft.getBoundingClientRect();
+    var hlr = hl.getBoundingClientRect();
+    var hlDocTop = (hlr.top - slr.top) + scanLeft.scrollTop;
+    scanLeft.scrollTop = Math.max(0, hlDocTop - 80);
+  }
+
+  /* Re-position with collapse/expand after brief delay for scroll + layout */
+  setTimeout(function(){
+    positionCards();
+    /* Ensure active card is uncollapsed and fully visible */
+    var c2 = g('rc'+idx);
+    if(c2){
+      c2.classList.remove('collapsed');
+      /* Scroll right panel to show active card if it's off-screen */
+      var sr = g('ScanRightBody') || g('ScanRight');
+      if(sr){
+        var srr = sr.getBoundingClientRect();
+        var cr = c2.getBoundingClientRect();
+        if(cr.bottom > srr.bottom || cr.top < srr.top){
+          var topVal = parseInt(c2.style.top)||0;
+          var rightHdr = g('ScanRight') && g('ScanRight').querySelector('.scan-right-hdr');
+          var hdrH = rightHdr ? rightHdr.offsetHeight : 0;
+          /* ScanRight is overflow:hidden, scroll by adjusting marginTop */
+          /* Already handled by positionCards marginTop — card will be visible */
+        }
+      }
+    }
+  }, 60);
+}
+
+/* ══════════════════════════════════════════
+   USER TEXT SELECTION
+══════════════════════════════════════════ */
+var _selText='', _selMouseX=0, _selMouseY=0, _selColor='yellow', _selRange=null;
+
+function setSelColor(color){
+  _selColor = color;
+  /* Update visual selection on color buttons */
+  ['blue','yellow','red'].forEach(function(c){
+    var btn = g('SpopColor'+c.charAt(0).toUpperCase()+c.slice(1));
+    if(btn) btn.classList.toggle('selected', c===color);
+  });
+}
+
+document.addEventListener('mouseup',function(e){
+  var popup=g('SelPopup');
+  if(popup.contains(e.target)) return;
+  var sel=window.getSelection();
+  if(!sel||sel.isCollapsed||!sel.toString().trim()){
+    popup.classList.remove('show'); _selText=''; _selRange=null; return;
+  }
+  var body=g('ScanBody');
+  if(!body||!body.contains(sel.anchorNode)){ popup.classList.remove('show'); return; }
+  _selText=sel.toString().trim();
+  _selRange = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  _selMouseX=e.clientX; _selMouseY=e.clientY;
+  /* Default to yellow if not set */
+  if(!_selColor) _selColor='yellow';
+  setSelColor(_selColor); /* refresh button states */
+  /* Position popup near mouse cursor */
+  popup.style.position='fixed';
+  popup.style.left=Math.min(e.clientX+4, window.innerWidth-200)+'px';
+  popup.style.top=(e.clientY-80)+'px';
+  popup.classList.add('show');
+});
+
+/* Inline note/instruction input instead of prompt() */
+function addUserClause(type){
+  g('SelPopup').classList.remove('show');
+  var text=_selText; _selText='';
+  if(!text)return;
+  /* Show inline input panel */
+  var note=null;
+  if(type==='revise'){
+    note=window._inlinePrompt('Revision direction (optional):') ;
+    if(note===undefined) return;
+  } else {
+    note=window._inlinePrompt('Risk description (optional):');
+    if(note===undefined) return;
+  }
+  var idx='u'+D.userClauses.length;
+  var clause={clause_name:'User: '+text.slice(0,40)+(text.length>40?'...':''),original:text,issue:note||'User-flagged clause.',level:'user',suggestion:''};
+  D.userClauses.push(clause);
+  D.decisions[idx]=type==='note'?'note':'revise';
+  if(type==='revise'&&note){ D.instructions[idx]=note; }
+  renderRiskList(); /* renderUserClauses() is called inside renderRiskList */
+  setTimeout(function(){
+    positionCards();
+    selectRisk(idx); /* activate + scroll to the new card */
+  }, 150);
+  updateScanProg();
+  if(type==='revise'){ callLLM2(idx, clause, note||''); }
+}
+
+/* ══════════════════════════════════════════
+   LLM 2 — REGENERATE SINGLE CLAUSE
+══════════════════════════════════════════ */
+function callLLM2(idx, clause, instruction, callback){
+  var k=key(),pr=g('PR').value.trim()||'Party A',ol=g('OL').value,ct=g('CT').value;
+  var payload={
+    inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:'',
+      original:clause.original||'',issue:clause.issue||'',instruction:instruction||''},
+    query:'REVISE_REQUEST: Please generate revision suggestion for the above clause.',
+    response_mode:'blocking',user:D.uid
+  };
+  if(D.convId) payload.conversation_id=D.convId;
+  var x=new XMLHttpRequest();
+  x.open('POST',base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload=function(){
+    if(x.status!==200){ showErr('Revision Generation',x.status,x.responseText); if(callback) callback(null); return; }
+    var data=JSON.parse(x.responseText);
+    if(!D.convId){ D.convId=data.conversation_id; lsSet('cr_conv_id',D.convId); }
+    var ans=data.answer||'';
+    D.suggestions[idx]=ans;
+    if(callback) callback(ans);
+  };
+  x.onerror=function(){ showErr('Revision Generation',null,''); if(callback) callback(null); };
+  x.send(JSON.stringify(payload));
+}
+
+/* ══════════════════════════════════════════
+   HIGHLIGHT RESELECT — let user manually adjust AI highlight range
+══════════════════════════════════════════ */
+var _hlEditIdx = null; // which clause is being reselected
+
+function startHlEdit(idx){
+  /* If already editing this one, cancel */
+  if(_hlEditIdx === idx){ cancelHlEdit(); return; }
+  /* Cancel any previous edit */
+  if(_hlEditIdx !== null) cancelHlEdit();
+
+  _hlEditIdx = idx;
+
+  /* Style the current highlight as "pending reselect" */
+  var scanBody = g('ScanBody');
+  var existing = scanBody && scanBody.querySelectorAll('.hl-click[data-idx="'+idx+'"]');
+  if(existing) existing.forEach(function(el){ el.classList.add('hl-reselect'); });
+
+  /* Style the edit button */
+  var btn = g('hledit'+idx);
+  if(btn){ btn.classList.add('active'); btn.textContent='✕'; }
+
+  /* Show instruction toast */
+  toast('Select new text range in the contract, then confirm.');
+
+  /* Override mouseup to capture the new selection */
+  document.addEventListener('mouseup', _hlEditMouseUp, true);
+}
+
+function _hlEditMouseUp(e){
+  /* Ignore clicks on cards, buttons, popups */
+  var popup = g('SelPopup');
+  if(popup && popup.contains(e.target)) return;
+  var scanRight = g('ScanRight');
+  if(scanRight && scanRight.contains(e.target)) return;
+
+  var sel = window.getSelection();
+  var body = g('ScanBody');
+
+  /* If click is completely outside ScanBody with no selection — cancel */
+  if(body && !body.contains(e.target) && (!sel || sel.isCollapsed)){
+    cancelHlEdit();
+    return;
+  }
+
+  /* Need a real selection inside ScanBody */
+  if(!sel || sel.isCollapsed || !sel.toString().trim()) return;
+  if(!body || !body.contains(sel.anchorNode)) return;
+
+  var newText = sel.toString().trim();
+  var range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  sel.removeAllRanges();
+
+  _hlEditConfirm(newText, range);
+}
+
+function _hlEditConfirm(newText, range){
+  var idx = _hlEditIdx;
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:600;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = '<div style="background:var(--paper);border-radius:10px;padding:20px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.2);">'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:10px;">Confirm new highlight range?</div>'
+    + '<div style="font-size:12px;color:var(--ink-muted);margin-bottom:8px;">New text:</div>'
+    + '<div style="font-size:12px;padding:8px;background:var(--paper-dark);border-radius:6px;border:1px solid var(--border);max-height:120px;overflow-y:auto;word-break:break-all;">' + esc(newText) + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">'
+    + '<button id="_hle_cancel" style="padding:6px 16px;border:1px solid var(--border);border-radius:5px;background:var(--paper-dark);cursor:pointer;font-size:12px;">Cancel</button>'
+    + '<button id="_hle_ok" style="padding:6px 16px;border:none;border-radius:5px;background:var(--ink);color:#fff;cursor:pointer;font-size:12px;">Confirm</button>'
+    + '</div></div>';
+  document.body.appendChild(modal);
+
+  modal.querySelector('#_hle_cancel').onclick = function(){
+    document.body.removeChild(modal);
+    cancelHlEdit();
+  };
+  modal.querySelector('#_hle_ok').onclick = function(){
+    document.body.removeChild(modal);
+    applyHlEdit(idx, newText, range);
+  };
+}
+
+function applyHlEdit(idx, newText, range){
+  document.removeEventListener('mouseup', _hlEditMouseUp, true);
+  _hlEditIdx = null;
+
+  var scanBody = g('ScanBody');
+  if(!scanBody){ toast('Error: scan body not found'); return; }
+
+  /* ── Step 1: Record the absolute text offset of the new selection
+     relative to ScanBody BEFORE we touch the DOM ── */
+  var newStart = -1, newEnd = -1;
+  if(range){
+    /* Walk all text nodes in scanBody to find absolute char offsets */
+    var offset = 0;
+    var startFound = false, endFound = false;
+    var walker = document.createTreeWalker(scanBody, NodeFilter.SHOW_TEXT, null, false);
+    var node;
+    while((node = walker.nextNode())){
+      var len = node.nodeValue.length;
+      if(!startFound && node === range.startContainer){
+        newStart = offset + range.startOffset;
+        startFound = true;
+      }
+      if(!endFound && node === range.endContainer){
+        newEnd = offset + range.endOffset;
+        endFound = true;
+      }
+      if(startFound && endFound) break;
+      offset += len;
+    }
+  }
+
+  /* ── Step 2: Remove old highlight span(s), unwrapping their text ── */
+  var oldSpans = Array.from(scanBody.querySelectorAll('.hl-click[data-idx="'+idx+'"]'));
+  oldSpans.forEach(function(span){
+    var parent = span.parentNode;
+    while(span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+  });
+  /* Normalize merges adjacent text nodes created by the unwrap */
+  scanBody.normalize();
+
+  /* ── Step 3: Rebuild a new Range from the saved text offsets ── */
+  var isUser = idx.toString().indexOf('u') === 0;
+  var lvl = isUser
+    ? ((D.userClauses[parseInt(idx.slice(1))]||{}).level || 'low')
+    : ((D.clauses[parseInt(idx)]||{}).level || 'low');
+  var lvlClass = lvl==='high'?'hl-high': lvl==='mid'?'hl-mid':'hl-low';
+  if(isUser){
+    var uc = D.userClauses[parseInt(idx.slice(1))];
+    if(uc && uc.userColor) lvlClass = 'hl-user-'+uc.userColor;
+  }
+
+  if(newStart >= 0 && newEnd > newStart){
+    try{
+      /* Walk text nodes again to find new start/end containers */
+      var offset2 = 0;
+      var newRange = document.createRange();
+      var startSet = false, endSet = false;
+      var walker2 = document.createTreeWalker(scanBody, NodeFilter.SHOW_TEXT, null, false);
+      var node2;
+      while((node2 = walker2.nextNode())){
+        var len2 = node2.nodeValue.length;
+        if(!startSet && offset2 + len2 > newStart){
+          newRange.setStart(node2, newStart - offset2);
+          startSet = true;
+        }
+        if(!endSet && offset2 + len2 >= newEnd){
+          newRange.setEnd(node2, newEnd - offset2);
+          endSet = true;
+        }
+        if(startSet && endSet) break;
+        offset2 += len2;
+      }
+      if(startSet && endSet){
+        var newSpan = document.createElement('span');
+        newSpan.className = lvlClass + ' hl-click' + (isUser?' hl-user-span':'');
+        newSpan.setAttribute('data-idx', idx);
+        if(isUser) newSpan.setAttribute('data-user','1');
+        newSpan.onclick = function(){ selectRisk(idx); };
+        newRange.surroundContents(newSpan);
+      }
+    } catch(e){
+      console.warn('Highlight rewrap failed:', e);
+    }
+  }
+
+  /* ── Step 4: Update original field ── */
+  if(isUser){
+    var ui = parseInt(idx.toString().slice(1));
+    if(D.userClauses[ui]) D.userClauses[ui].original = newText;
+  } else {
+    var ci = parseInt(idx);
+    if(D.clauses[ci]) D.clauses[ci].original = newText;
+  }
+
+  /* Reset edit button */
+  var btn = g('hledit'+idx);
+  if(btn){ btn.classList.remove('active'); btn.textContent='✎'; }
+
+  setTimeout(positionCards, 80);
+  selectRisk(idx);
+  toast('Highlight updated ✓');
+}
+
+function cancelHlEdit(){
+  document.removeEventListener('mouseup', _hlEditMouseUp, true);
+  var idx = _hlEditIdx;
+  _hlEditIdx = null;
+  if(idx !== null){
+    var scanBody = g('ScanBody');
+    if(scanBody){
+      var spans = scanBody.querySelectorAll('.hl-click[data-idx="'+idx+'"]');
+      spans.forEach(function(el){ el.classList.remove('hl-reselect'); });
+    }
+    var btn = g('hledit'+idx);
+    if(btn){ btn.classList.remove('active'); btn.textContent='✎'; }
+  }
+}
+
+/* ══════════════════════════════════════════
+   EXPORT FEEDBACK JSON (for preference learning)
+══════════════════════════════════════════ */
+function exportFeedback(){
+  var feedback=[];
+  D.clauses.forEach(function(c,i){
+    var dec=D.decisions[i]||'';
+    if(!dec) return;
+    var liveInput=(g('ri'+i)||{}).value||'';
+    var userInstr=liveInput||D.instructions[i]||'';
+    feedback.push({
+      clause_ref: c.clause_ref||('Clause '+(i+1)),
+      clause_name: c.clause_name||'',
+      original: c.original||'',
+      ai_issue: c.issue||'',
+      ai_suggestion: c.suggestion||'',
+      ai_level: c.level||'',
+      user_decision: dec,
+      user_instruction: userInstr
+    });
+  });
+  D.userClauses.forEach(function(c,i){
+    var idx='u'+i, dec=D.decisions[idx]||'';
+    if(!dec) return;
+    var liveInput=(g('ri'+idx)||{}).value||'';
+    var userInstr=liveInput||D.instructions[idx]||'';
+    feedback.push({
+      clause_ref: 'User-'+i,
+      clause_name: c.clause_name||'',
+      original: c.original||'',
+      ai_issue: c.issue||'',
+      ai_suggestion: '',
+      ai_level: c.level||'',
+      user_decision: dec,
+      user_instruction: userInstr
+    });
+  });
+  if(!feedback.length){ toast('No decisions made yet.'); return; }
+  var out={
+    scan_result: D.clauses,
+    feedback: feedback,
+    meta:{ party_role:(g('PR')||{}).value||'', contract_type:(g('CT')||{}).value||'', exported_at:new Date().toISOString() }
+  };
+  var json=JSON.stringify(out, null, 2);
+  navigator.clipboard.writeText(json).then(function(){
+    toast('Feedback JSON copied to clipboard ✓');
+  }).catch(function(){
+    var modal=document.createElement('div');
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:600;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML='<div style="background:var(--paper);border-radius:10px;padding:20px;width:600px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column;gap:12px;">'
+      +'<div style="font-size:13px;font-weight:600;">Feedback JSON</div>'
+      +'<textarea style="flex:1;min-height:300px;font-family:var(--mono);font-size:11px;padding:8px;border:1px solid var(--border);border-radius:6px;resize:none;" readonly>'+json+'</textarea>'
+      +'<div style="display:flex;justify-content:flex-end;">'
+      +'<button onclick="this.closest(\'div[style]\').remove()" style="padding:6px 16px;border:none;border-radius:5px;background:var(--ink);color:#fff;cursor:pointer;font-size:12px;">Close</button>'
+      +'</div></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('textarea').select();
+  });
+}
+
+/* ══════════════════════════════════════════
+   GENERATE REVIEW TABLE  — calls REVIEW_TABLE_REQUEST
+══════════════════════════════════════════ */
+function genTable(){
+  var allItems=[];
+  D.clauses.forEach(function(c,i){
+    var dec=D.decisions[i];
+    if(dec==='revise'||dec==='note'){
+      /* Always read latest value from textarea first, then fall back to saved instruction, then AI suggestion */
+      var liveInput=(g('ri'+i)||{}).value||'';
+      var userInstr=liveInput||D.instructions[i]||(dec==='revise'?c.suggestion||'':'');
+      allItems.push({
+        clause_ref: c.clause_ref||('Clause '+(i+1)),
+        clause_name: c.clause_name||'',
+        original: c.original||'',
+        issue: c.issue||'',
+        level: c.level||'low',
+        action_type: dec,
+        user_instruction: userInstr,
+        ai_suggestion: c.suggestion||''
+      });
+    }
+  });
+  D.userClauses.forEach(function(c,i){
+    var idx='u'+i, dec=D.decisions[idx];
+    if(dec==='revise'||dec==='note'){
+      var liveInput=(g('ri'+idx)||{}).value||'';
+      var userInstr=liveInput||D.instructions[idx]||(dec==='revise'?c.suggestion||'':'');
+      allItems.push({
+        clause_ref: c.clause_ref||('User-'+i),
+        clause_name: c.clause_name||'',
+        original: c.original||'',
+        issue: c.issue||'',
+        level: c.level||'low',
+        action_type: dec,
+        user_instruction: userInstr,
+        ai_suggestion: c.suggestion||''
+      });
+    }
+  });
+
+  if(!allItems.length){ toast('No items selected. Please select at least one clause.'); return; }
+
+  var k=key(),pr=g('PR').value.trim()||'Party A',ol=g('OL').value,ct=g('CT').value;
+  var requestObj={
+    clauses: allItems,
+    party_role: pr,
+    contract_type: ct,
+    output_language: ol
+  };
+  var requestJson=JSON.stringify(requestObj);
+
+  goPage(0); ld(true,'Generating review table...');
+
+  var payload={
+    inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:'',
+      original:'',issue:'',instruction:''},
+    query:'REVIEW_TABLE_REQUEST: '+requestJson,
+    response_mode:'streaming', user:D.uid
+  };
+  if(D.convId) payload.conversation_id=D.convId;
+
+  var x=new XMLHttpRequest();
+  x.open('POST',base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  var fullAnswer='', convSet=false, done=false;
+  x.onload=function(){
+    if(x.status!==200){showErr('Review Table',x.status,x.responseText);return;}
+    if(done) return;
+    /* parse complete SSE stream */
+    x.responseText.split('\n').forEach(function(line){
+      line=line.trim();
+      if(!line.startsWith('data:')) return;
+      var json=line.slice(5).trim();
+      if(json==='[DONE]') return;
+      try{
+        var evt=JSON.parse(json);
+        if(!convSet&&evt.conversation_id){D.convId=evt.conversation_id;lsSet('cr_conv_id',D.convId);convSet=true;}
+        if(evt.event==='message'&&evt.answer) fullAnswer+=evt.answer;
+      }catch(e){}
+    });
+    ld(false);
+    parseAndRenderTable(fullAnswer, requestObj);
+  };
+  x.onerror=function(){showErr('Review Table',null,'');};
+  x.send(JSON.stringify(payload));
+}
+
+function parseAndRenderTable(raw, requestObj){
+  var tableData=null;
+
+  /* Try REVIEW_TABLE: prefix */
+  var rtIdx=raw.indexOf('REVIEW_TABLE:');
+  if(rtIdx!==-1){
+    var jsonStr=raw.slice(rtIdx+13).trim();
+    try{ tableData=JSON.parse(jsonStr); }catch(e){
+      var m=jsonStr.match(/\{[\s\S]*\}/);
+      if(m){ try{ tableData=JSON.parse(m[0]); }catch(e2){} }
+    }
+  }
+  /* Fallback: bare JSON */
+  if(!tableData){
+    try{
+      var m2=raw.match(/\{[\s\S]*\}/);
+      if(m2) tableData=JSON.parse(m2[0]);
+    }catch(e){}
+  }
+
+  var reviewTable=(tableData&&tableData.review_table)||[];
+
+  /* If empty or parse failed, show error */
+  if(!reviewTable.length){
+    showErr('Review Table',null,'Could not parse review table.\n\nRaw (first 400 chars):\n'+raw.slice(0,400));
+    return;
+  }
+
+  /* Store in D for regen use */
+  D.reviewTable=reviewTable;
+
+  renderReviewTable(reviewTable);
+  goPage(2);
+  saveHistRecord();
+}
+
+/* ══════════════════════════════════════════
+   REVIEW-MODE HIGHLIGHT COLORS
+   Called when entering P2 (review table page)
+   - revise → orange highlight
+   - note   → blue highlight
+   - ignore → remove highlight
+══════════════════════════════════════════ */
+function applyReviewHighlights(){
+  /* Only apply review colours to ReviewBody (P2) — never touch ScanBody (P1) */
+  var reviewBody = g('ReviewBody');
+  if(!reviewBody) return;
+
+  D.clauses.forEach(function(c, i){
+    var dec = D.decisions[i];
+    var spans = reviewBody.querySelectorAll('.hl-click[data-idx="'+i+'"]');
+    spans.forEach(function(span){
+      span.classList.remove('hl-review-revise','hl-review-note','hl-review-ignore');
+      if(dec==='ignore')      span.classList.add('hl-review-ignore');
+      else if(dec==='revise') span.classList.add('hl-review-revise');
+      else if(dec==='note')   span.classList.add('hl-review-note');
+    });
+  });
+  D.userClauses.forEach(function(c, i){
+    var idx='u'+i, dec=D.decisions[idx];
+    var spans = reviewBody.querySelectorAll('.hl-click[data-idx="'+idx+'"]');
+    spans.forEach(function(span){
+      span.classList.remove('hl-review-revise','hl-review-note','hl-review-ignore');
+      if(dec==='ignore')      span.classList.add('hl-review-ignore');
+      else if(dec==='revise') span.classList.add('hl-review-revise');
+      else if(dec==='note')   span.classList.add('hl-review-note');
+    });
+  });
+}
+
+/* ══════════════════════════════════════════
+   REVIEW TABLE EDIT MODE
+══════════════════════════════════════════ */
+var _revEditState = {}; /* id → {raw: string} */
+
+
+function renderReviewTable(reviewTable){
+  D.reviewTable = reviewTable;
+
+  /* Copy ScanBody HTML into ReviewBody */
+  var reviewBody = g('ReviewBody');
+  var scanBody   = g('ScanBody');
+  if(reviewBody && scanBody){
+    reviewBody.innerHTML = scanBody.innerHTML;
+    reviewBody.style.fontSize = _reviewLeftFontSize + 'px';
+    reviewBody.querySelectorAll('.hl-click').forEach(function(span){
+      span.onclick = function(e){
+        e.stopPropagation();
+        reviewSelectCard('hl:'+span.getAttribute('data-idx'));
+      };
+    });
+  }
+
+  var container = g('ReviewAnnotContainer');
+  if(!container) return;
+  container.innerHTML = '';
+  _revEditState = {};
+  _activeReviewCardId = null;
+
+  var revN=0, noteN=0;
+  reviewTable.forEach(function(item){
+    var type = item.action_type;
+    var id   = type==='revise' ? 'rv'+(revN++) : 'nt'+(noteN++);
+    container.appendChild(buildReviewCard(item, id, type));
+  });
+
+  var rc=g('RT_revCount'); if(rc) rc.textContent=revN+' revision'+(revN!==1?'s':'');
+  var nc=g('RT_noteCount'); if(nc) nc.textContent=noteN+' note'+(noteN!==1?'s':'');
+
+  var reviewLeft=g('ReviewLeft');
+  if(reviewLeft) reviewLeft.onscroll = function(){ positionReviewCards(); };
+
+  setTimeout(function(){
+    applyReviewHighlights();
+    positionReviewCards();
+  }, 120);
+}
+
+function buildReviewCard(item, id, type){
+  var div = document.createElement('div');
+  var sugg = item.suggested_revision || '';
+  _revEditState[id] = {raw: sugg};
+
+  var typeBadge = type==='revise'
+    ? '<span style="background:#fed7aa;color:#c2410c;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:700;font-family:var(--mono);letter-spacing:.04em;flex-shrink:0;">REVISE</span>'
+    : '<span style="background:#bfdbfe;color:#1e40af;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:700;font-family:var(--mono);letter-spacing:.04em;flex-shrink:0;">NOTE</span>';
+
+  if(type==='revise'){
+    div.className = 'risk-card rc-revise';
+    div.id = 'rvc_'+id;
+    div.onclick = function(){ reviewSelectCard('id:'+id); };
+    div.innerHTML =
+      '<div class="risk-card-head">'
+        +typeBadge
+        +(item.clause_ref?'<span class="risk-ref">'+esc(item.clause_ref)+'</span>':'')
+        +'<span style="flex:1;margin-left:6px;font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(item.clause_name||'')+'</span>'
+      +'</div>'
+      /* Rendered revision — shown when expanded */
+      +'<div class="rv-rendered" id="rvr_'+id+'" style="font-size:12px;line-height:1.7;padding:6px 0 4px;"></div>'
+      /* Edit textarea — same size as rendered area */
+      +'<textarea class="rev-edit-area" id="rvta_'+id+'" style="display:none;width:100%;box-sizing:border-box;padding:8px;font-family:var(--mono);font-size:11px;border:1px solid #f59e0b;border-radius:6px;resize:none;outline:none;background:#fffbeb;line-height:1.6;overflow-y:hidden;" placeholder="Edit: use [-del-] and [+add+]..." oninput="this.style.height=\'auto\';this.style.height=this.scrollHeight+\'px\';"></textarea>'
+      +'<div class="risk-actions" style="display:none;padding-top:6px;border-top:1px solid var(--border-light);" id="rv_acts_'+id+'">'
+        +'<button class="ract" id="rv_a_'+id+'" onclick="event.stopPropagation();rvAction(\''+id+'\',\'accept\')">✓ Accept</button>'
+        +'<button class="ract" id="rv_e_'+id+'" onclick="event.stopPropagation();rvAction(\''+id+'\',\'edit\')">✎ Edit</button>'
+        +'<button class="ract" id="rv_d_'+id+'" onclick="event.stopPropagation();rvAction(\''+id+'\',\'dismiss\')">✕ Dismiss</button>'
+        +'<button class="ract" id="rv_r_'+id+'" onclick="event.stopPropagation();rvAction(\''+id+'\',\'regen\')">↺ Regen</button>'
+      +'</div>'
+      +'<div class="revise-input-wrap" id="rv_rw_'+id+'">'
+        +'<textarea class="revise-input" id="rv_ri_'+id+'" placeholder="Regen direction..."></textarea>'
+        +'<button class="regen-btn" onclick="doReviewRegen(\''+id+'\')">Regenerate</button>'
+      +'</div>';
+  } else {
+    div.className = 'risk-card rc-note';
+    div.id = 'rvc_'+id;
+    div.onclick = function(){ reviewSelectCard('id:'+id); };
+    div.innerHTML =
+      '<div class="risk-card-head">'
+        +typeBadge
+        +(item.clause_ref?'<span class="risk-ref">'+esc(item.clause_ref)+'</span>':'')
+        +'<span style="flex:1;margin-left:6px;font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(item.clause_name||'')+'</span>'
+      +'</div>'
+      +'<div class="nt-rendered" id="ntr_'+id+'" style="font-size:12px;line-height:1.7;padding:6px 0 4px;color:#1e40af;display:none;">'+esc(sugg||item.issue||'')+'</div>'
+      +'<textarea class="rev-edit-area" id="rvta_'+id+'" style="display:none;width:100%;box-sizing:border-box;padding:8px;font-family:var(--sans);font-size:12px;border:1px solid #93c5fd;border-radius:6px;resize:none;outline:none;background:#eff6ff;line-height:1.6;overflow-y:hidden;" placeholder="Edit note text..." oninput="this.style.height=\'auto\';this.style.height=this.scrollHeight+\'px\';"></textarea>'
+      +'<div class="risk-actions" style="display:none;padding-top:6px;border-top:1px solid var(--border-light);" id="nt_acts_'+id+'">'
+        +'<button class="ract" id="nt_i_'+id+'" onclick="event.stopPropagation();ntAction(\''+id+'\',\'include\')">✓ Include</button>'
+        +'<button class="ract" id="nt_e_'+id+'" onclick="event.stopPropagation();ntAction(\''+id+'\',\'edit\')">✎ Edit</button>'
+        +'<button class="ract" id="nt_d_'+id+'" onclick="event.stopPropagation();ntAction(\''+id+'\',\'dismiss\')">✕ Dismiss</button>'
+      +'</div>';
+  }
+  return div;
+}
+
+/* ── Revise card actions ── */
+function rvAction(id, action){
+  var card=g('rvc_'+id), rendered=g('rvr_'+id), ta=g('rvta_'+id), rw=g('rv_rw_'+id), eb=g('rv_e_'+id);
+  if(action==='accept'){
+    var was=card&&card.classList.contains('rv-accepted');
+    if(card){card.classList.toggle('rv-accepted',!was);card.classList.remove('rv-dismissed');}
+    var ab=g('rv_a_'+id); if(ab) ab.classList.toggle('sel-note',!was);
+    var db=g('rv_d_'+id); if(db) db.classList.remove('sel-ignore');
+  } else if(action==='dismiss'){
+    var was2=card&&card.classList.contains('rv-dismissed');
+    if(card){card.classList.toggle('rv-dismissed',!was2);card.classList.remove('rv-accepted');}
+    var db2=g('rv_d_'+id); if(db2) db2.classList.toggle('sel-ignore',!was2);
+    var ab2=g('rv_a_'+id); if(ab2) ab2.classList.remove('sel-note');
+  } else if(action==='edit'){
+    var editing=eb&&eb.classList.contains('sel-revise');
+    if(!editing){
+      if(ta&&rendered){
+        /* Set textarea height to match the rendered content height */
+        var h=Math.max(rendered.offsetHeight, 80);
+        ta.value=_revEditState[id]?_revEditState[id].raw:'';
+        ta.style.display='block';
+        ta.style.height=h+'px';
+        ta.style.overflow='auto';
+        ta.focus();
+      }
+      if(rendered) rendered.style.display='none';
+      if(eb){eb.classList.add('sel-revise');eb.textContent='✓ Done';}
+    } else {
+      var newRaw=ta?ta.value:'';
+      _revEditState[id]={raw:newRaw};
+      var revItems=(D.reviewTable||[]).filter(function(r){return r.action_type==='revise';});
+      var ni=parseInt(id.slice(2));
+      if(revItems[ni]) revItems[ni].suggested_revision=newRaw;
+      if(rendered){rendered.innerHTML=renderRedline(newRaw);rendered.style.display='';}
+      if(ta){ta.style.display='none';ta.style.height='auto';}
+      if(eb){eb.classList.remove('sel-revise');eb.textContent='✎ Edit';}
+      setTimeout(positionReviewCards,60);
+    }
+  } else if(action==='regen'){
+    if(rw) rw.classList.toggle('open');
+    setTimeout(positionReviewCards, 60);
+  }
+}
+
+/* ── Note card actions ── */
+function ntAction(id, action){
+  var card=g('rvc_'+id), rendered=g('ntr_'+id), ta=g('rvta_'+id), eb=g('nt_e_'+id);
+  if(action==='include'){
+    var was=card&&card.classList.contains('nt-included');
+    if(card){card.classList.toggle('nt-included',!was);card.classList.remove('nt-dismissed');}
+    var ib=g('nt_i_'+id); if(ib) ib.classList.toggle('sel-note',!was);
+    var db=g('nt_d_'+id); if(db) db.classList.remove('sel-ignore');
+  } else if(action==='dismiss'){
+    var was2=card&&card.classList.contains('nt-dismissed');
+    if(card){card.classList.toggle('nt-dismissed',!was2);card.classList.remove('nt-included');}
+    var db2=g('nt_d_'+id); if(db2) db2.classList.toggle('sel-ignore',!was2);
+    var ib2=g('nt_i_'+id); if(ib2) ib2.classList.remove('sel-note');
+  } else if(action==='edit'){
+    var editing=eb&&eb.classList.contains('sel-revise');
+    if(!editing){
+      if(ta&&rendered){
+        var h2=Math.max(rendered.offsetHeight, 60);
+        ta.value=_revEditState[id]?_revEditState[id].raw:(rendered?rendered.textContent:'');
+        ta.style.display='block';
+        ta.style.height=h2+'px';
+        ta.style.overflow='auto';
+        ta.focus();
+      }
+      if(rendered) rendered.style.display='none';
+      if(eb){eb.classList.add('sel-revise');eb.textContent='✓ Done';}
+    } else {
+      var newText=ta?ta.value:'';
+      _revEditState[id]={raw:newText};
+      var noteItems=(D.reviewTable||[]).filter(function(r){return r.action_type==='note';});
+      var ni2=parseInt(id.slice(2));
+      if(noteItems[ni2]) noteItems[ni2].suggested_revision=newText;
+      if(rendered){rendered.textContent=newText;rendered.style.display='';}
+      if(ta) ta.style.display='none';
+      if(eb){eb.classList.remove('sel-revise');eb.textContent='✎ Edit';}
+      setTimeout(positionReviewCards,80);
+    }
+  }
+}
+
+/* ── Regenerate single revision ── */
+function doReviewRegen(id){
+  var inpEl=g('rv_ri_'+id);
+  var instruction=inpEl?inpEl.value.trim():'';
+  var revItems=(D.reviewTable||[]).filter(function(r){return r.action_type==='revise';});
+  var ni=parseInt(id.slice(2));
+  var item=revItems[ni];
+  if(!item) return;
+  var k=key(),pr=g('PR').value.trim()||'Party A',ol=g('OL').value,ct=g('CT').value;
+  var payload={
+    inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:'',
+      original:item.original||'',issue:item.issue||'',instruction:instruction},
+    query:'REVISE_REQUEST: Please generate revision suggestion for the above clause.',
+    response_mode:'blocking',user:D.uid
+  };
+  if(D.convId) payload.conversation_id=D.convId;
+  var rw=g('rv_rw_'+id);
+  var rb=rw&&rw.querySelector('.regen-btn');
+  if(rb) rb.disabled=true;
+  var x=new XMLHttpRequest();
+  x.open('POST',base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload=function(){
+    if(rb) rb.disabled=false;
+    if(x.status!==200){showErr('Regen',x.status,x.responseText);return;}
+    var data=JSON.parse(x.responseText);
+    var sugg=data.answer||'';
+    if(sugg){
+      _revEditState[id]={raw:sugg};
+      if(item) item.suggested_revision=sugg;
+      var rendered=g('rvr_'+id);
+      if(rendered){rendered.innerHTML=renderRedline(sugg);rendered.style.display='';}
+      var ta=g('rvta_'+id); if(ta) ta.style.display='none';
+      var eb=g('rv_e_'+id); if(eb){eb.classList.remove('sel-revise');eb.textContent='✎ Edit';}
+      if(rw) rw.classList.remove('open');
+      toast('Revision regenerated');
+      setTimeout(positionReviewCards,80);
+    }
+  };
+  x.onerror=function(){if(rb) rb.disabled=false;};
+  x.send(JSON.stringify(payload));
+}
+
+/* ── Select review card — mirrors selectRisk() from P1 ── */
+var _activeReviewCardId = null;
+
+function expandReviewCard(id, type){
+  var card=g('rvc_'+id); if(!card) return;
+  if(type==='revise'){
+    var rendered=g('rvr_'+id);
+    var acts=g('rv_acts_'+id);
+    var eb=g('rv_e_'+id);
+    if(rendered && !(eb&&eb.classList.contains('sel-revise'))){
+      var sugg=_revEditState[id]?_revEditState[id].raw:'';
+      rendered.innerHTML=sugg?renderRedline(sugg):'<span style="color:var(--ink-muted);font-style:italic;">No revision generated.</span>';
+      rendered.style.display='';
+    }
+    if(acts) acts.style.display='flex';
+  } else {
+    var nr=g('ntr_'+id);
+    var na=g('nt_acts_'+id);
+    var neb=g('nt_e_'+id);
+    if(nr && !(neb&&neb.classList.contains('sel-revise'))) nr.style.display='';
+    if(na) na.style.display='flex';
+  }
+}
+
+function collapseReviewCard(id, type){
+  if(type==='revise'){
+    var r=g('rvr_'+id); if(r) r.style.display='none';
+    var a=g('rv_acts_'+id); if(a) a.style.display='none';
+    var t=g('rvta_'+id); if(t) t.style.display='none';
+    var rw=g('rv_rw_'+id); if(rw) rw.classList.remove('open');
+    var eb=g('rv_e_'+id); if(eb){eb.classList.remove('sel-revise');eb.textContent='✎ Edit';}
+  } else {
+    var nr=g('ntr_'+id); if(nr) nr.style.display='none';
+    var na=g('nt_acts_'+id); if(na) na.style.display='none';
+    var nt=g('rvta_'+id); if(nt) nt.style.display='none';
+    var neb=g('nt_e_'+id); if(neb){neb.classList.remove('sel-revise');neb.textContent='✎ Edit';}
+  }
+}
+
+function reviewSelectCard(key){
+  var cardId=null, cardType=null;
+  if(key.indexOf('id:')===0){
+    cardId=key.slice(3);
+    cardType=cardId.indexOf('rv')===0?'revise':'note';
+  } else if(key.indexOf('hl:')===0){
+    var hlIdx=key.slice(3);
+    var c=D.clauses[parseInt(hlIdx)];
+    if(!c && hlIdx.toString().indexOf('u')===0) c=D.userClauses[parseInt(hlIdx.slice(1))];
+    if(!c) return;
+    var origSnip=(c.original||'').trim().slice(0,20);
+    var rn=0,nn=0;
+    (D.reviewTable||[]).forEach(function(item){
+      var t=item.action_type;
+      var cid=t==='revise'?'rv'+(rn++):'nt'+(nn++);
+      var snip=(item.original||'').trim().slice(0,20);
+      if(snip&&origSnip&&snip===origSnip){cardId=cid;cardType=t;}
+    });
+  }
+  if(!cardId) return;
+
+  /* Collapse previous */
+  if(_activeReviewCardId && _activeReviewCardId!==cardId){
+    var prevType2=_activeReviewCardId.indexOf('rv')===0?'revise':'note';
+    var prev=g('rvc_'+_activeReviewCardId);
+    if(prev){prev.classList.remove('active');collapseReviewCard(_activeReviewCardId,prevType2);}
+  }
+  _activeReviewCardId=cardId;
+
+  /* Activate and expand */
+  document.querySelectorAll('.rc-revise,.rc-note').forEach(function(c){c.classList.remove('active');});
+  var card=g('rvc_'+cardId);
+  if(card) card.classList.add('active');
+  if(cardType) expandReviewCard(cardId,cardType);
+
+  /* Clear previous highlight selection */
+  var reviewBody=g('ReviewBody');
+  if(reviewBody){
+    reviewBody.querySelectorAll('.hl-review-selected').forEach(function(s){s.classList.remove('hl-review-selected');});
+    var type3=cardId.indexOf('rv')===0?'revise':'note';
+    var ni3=parseInt(cardId.slice(2));
+    var items3=(D.reviewTable||[]).filter(function(r){return r.action_type===type3;});
+    var item3=items3[ni3];
+    if(item3){
+      var snip3=(item3.original||'').trim().slice(0,15);
+      var hlClass3=type3==='revise'?'.hl-review-revise':'.hl-review-note';
+      if(snip3&&snip3!=='N/A'){
+        var found=null;
+        reviewBody.querySelectorAll(hlClass3).forEach(function(s){
+          if(!found&&(s.textContent||'').trim().indexOf(snip3)>=0){
+            s.classList.add('hl-review-selected');found=s;
+          }
+        });
+        var hl3=reviewBody.querySelector('.hl-review-selected');
+        var reviewLeft=g('ReviewLeft');
+        if(hl3&&reviewLeft){
+          var rlr=reviewLeft.getBoundingClientRect();
+          var hlr=hl3.getBoundingClientRect();
+          reviewLeft.scrollTop=Math.max(0,(hlr.top-rlr.top)+reviewLeft.scrollTop-80);
+        }
+      }
+    }
+  }
+
+  setTimeout(function(){
+    positionReviewCards();
+    var rrb=g('ReviewRightBody');
+    var card2=g('rvc_'+cardId);
+    if(rrb&&card2){
+      var top=parseInt(card2.style.top)||0;
+      rrb.scrollTop=Math.max(0,top-60);
+    }
+  },60);
+}
+
+
+/* ── Position review cards — mirrors positionCards() from P1 ── */
+function positionReviewCards(){
+  var reviewLeft  = g('ReviewLeft');
+  var reviewBody  = g('ReviewBody');
+  var reviewRight = g('ReviewRight');
+  var container   = g('ReviewAnnotContainer');
+  if(!reviewLeft||!reviewBody||!container) return;
+
+  var scrollTop = reviewLeft.scrollTop;
+  var rightHdr  = reviewRight&&reviewRight.querySelector('.scan-right-hdr');
+  var hdrH      = rightHdr?rightHdr.offsetHeight:0;
+  var rlRect    = reviewLeft.getBoundingClientRect();
+
+  /* Mirror scroll via marginTop — same as P1 */
+  container.style.marginTop = (-scrollTop)+'px';
+
+  var slots=[], rn=0, nn=0;
+
+  (D.reviewTable||[]).forEach(function(item){
+    var type=item.action_type;
+    var id=type==='revise'?'rv'+(rn++):'nt'+(nn++);
+    var card=g('rvc_'+id);
+    if(!card) return;
+
+    /* Find highlight in ReviewBody */
+    var hl=null;
+    var snip=(item.original||'').trim().slice(0,20);
+    var hlClass=item.action_type==='revise'?'.hl-review-revise':'.hl-review-note';
+    if(snip && snip!=='N/A'){
+      var spans=reviewBody.querySelectorAll(hlClass);
+      for(var s=0;s<spans.length;s++){
+        if((spans[s].textContent||'').trim().indexOf(snip)>=0){hl=spans[s];break;}
+      }
+    }
+
+    var isActive=id===_activeReviewCardId;
+    card.classList.toggle('collapsed',!isActive);
+
+    if(!hl){
+      /* No highlight match — will be placed after all matched cards */
+      slots.push({card:card,idealTop:null,id:id,isActive:isActive});
+      return;
+    }
+    var hlRect=hl.getBoundingClientRect();
+    var idealTop=(hlRect.top-rlRect.top)+scrollTop-hdrH;
+    slots.push({card:card,idealTop:Math.max(0,idealTop),id:id,isActive:isActive});
+  });
+
+  /* Separate matched and unmatched */
+  var matched   = slots.filter(function(s){ return s.idealTop !== null; });
+  var unmatched = slots.filter(function(s){ return s.idealTop === null; });
+  matched.sort(function(a,b){ return a.idealTop-b.idealTop; });
+
+  var cursor=0, GAP=4;
+  var maxBottom=0;
+
+  function placeCard(s){
+    var top = s.idealTop !== null ? Math.max(s.idealTop, cursor) : cursor;
+    s.card.style.position='absolute';
+    s.card.style.top=top+'px';
+    var cardH=s.isActive?(s.card.offsetHeight||150):36;
+    cursor=top+cardH+GAP;
+    maxBottom=Math.max(maxBottom,top+cardH);
+  }
+
+  matched.forEach(placeCard);
+
+  /* Add section header before unmatched clauses */
+  if(unmatched.length){
+    var hdr = g('rv_unmatched_hdr');
+    if(!hdr){
+      hdr = document.createElement('div');
+      hdr.id = 'rv_unmatched_hdr';
+      hdr.style.cssText = 'position:absolute;left:0;right:0;padding:6px 14px;background:var(--paper-dark);border-top:2px dashed #d1d5db;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;';
+      hdr.textContent = '⊕ Suggested New Clauses (not in original contract)';
+      container.appendChild(hdr);
+    }
+    hdr.style.top = cursor + 'px';
+    cursor += hdr.offsetHeight || 32;
+    maxBottom = Math.max(maxBottom, cursor);
+  } else {
+    var oldHdr = g('rv_unmatched_hdr');
+    if(oldHdr) oldHdr.style.display = 'none';
+  }
+
+  unmatched.forEach(placeCard);
+
+  /* Set container height exactly to last card bottom — no extra space */
+  if(slots.length){
+    container.style.height=(maxBottom+8)+'px';
+  } else {
+    container.style.height='0px';
+  }
+}
+
+/* Keep backward compat */
+function renderReviewTableLegacy(rt){ var w=g('RTableWrap'); if(w) w.innerHTML=''; }
+
+
+function buildRevCardFromTable(item, n){
+  var id='rt'+n;
+  var sugg=item.suggested_revision||'';
+  var missing=item._missing;
+  _revEditState[id] = {raw: sugg};
+  return '<div class="rcard" id="rcard'+id+'">'
+    +'<div class="rcard-head" onclick="togCard(\'rcard'+id+'\')">'
+    +'<span class="rcard-num">#'+pad(n+1)+'</span>'
+    +'<span class="sec-badge badge-rev">Revision</span>'
+    +(item.clause_ref?'<span class="rcard-ref">'+esc(item.clause_ref)+'</span>':'')
+    +'<span class="rcard-name">'+esc(item.clause_name||'Clause')+'</span>'
+    +'<span class="rcard-tog">\u2228</span></div>'
+    +'<div class="rcard-body">'
+    +'<div class="rcard-issue">'+esc(item.issue||'')+'</div>'
+    +'<div class="rdiff">'
+    +'<div class="rdiff-panel dpanel-orig"><div class="rdiff-lbl">\u2715 Original</div>'+esc(item.original||'\u2014')+'</div>'
+    +'<div class="rdiff-panel dpanel-rev" id="revpanel'+id+'">'
+    +'<div class="rdiff-lbl" style="display:flex;align-items:center;justify-content:space-between;">'
+    +'\u2713 Suggested Revision'
+    +'<button class="rev-edit-btn" id="revedit'+id+'" onclick="event.stopPropagation();toggleRevEdit(\''+id+'\')">✎ Edit</button>'
+    +'</div>'
+    +'<div class="rev-rendered">'
+    +(missing?'<span style="color:var(--ink-muted);font-style:italic;">Not generated \u2014 click Regen.</span>'
+    :(sugg?renderRedline(sugg):'<span style="color:var(--ink-muted);font-style:italic;">No suggestion generated.</span>'))
+    +'</div>'
+    +'<textarea class="rev-edit-area" id="reveditarea'+id+'" style="display:none;"></textarea>'
+    +'</div></div>'
+    +'<div class="rcard-actions">'
+    +'<button class="rac" onclick="setRevDecRT(\''+id+'\',\'ok\')">\u2713 Accept</button>'
+    +'<button class="rac" onclick="setRevDecRT(\''+id+'\',\'no\')">\u2715 Reject</button>'
+    +'<button class="rac" onclick="setRevDecRT(\''+id+'\',\'nt\')">\u2192 Keep as Note</button>'
+    +'<button class="rac re" onclick="toggleRegen(\''+id+'\')">\u21ba Regen</button>'
+    +'</div>'
+    +'<div class="reinput-wrap" id="regen'+id+'">'
+    +'<textarea class="reinput" id="reginp'+id+'" placeholder="New revision direction..."></textarea>'
+    +'<button class="regen-btn" onclick="doRegenRT(\''+id+'\','+n+')">Regenerate</button>'
+    +'</div>'
+    +'</div></div>';
+}
+function buildNoteCardFromTable(item, n){
+  var id='nt'+n;
+  return '<div class="ncard" id="ncard'+id+'">'
+    +'<div class="ncard-head" onclick="togCard(\'ncard'+id+'\')">'
+    +'<span class="rcard-num">#'+pad(n+1)+'</span>'
+    +'<span class="sec-badge badge-note">Note</span>'
+    +(item.clause_ref?'<span class="rcard-ref">'+esc(item.clause_ref)+'</span>':'')
+    +'<span class="ncard-name">'+esc(item.clause_name||'Clause')+'</span>'
+    +'<span class="rcard-tog">\u2228</span></div>'
+    +'<div class="ncard-body">'
+    +'<div class="ncard-text">'+esc(item.issue||'')+'</div>'
+    +'<div class="ncard-text" style="margin-top:6px;font-style:italic;color:var(--ink-muted);">'+esc(item.original||'')+'</div>'
+    +'<div class="ncard-actions">'
+    +'<button class="nac" onclick="setNoteDecRT(\''+id+'\',\'inc\')">\u2713 Include</button>'
+    +'<button class="nac" onclick="setNoteDecRT(\''+id+'\',\'dis\')">\u2715 Dismiss</button>'
+    +'</div>'
+    +'</div></div>';
+}
+
+function buildAddClauseSection(){
+  return '<div class="add-clause-wrap" style="margin-top:16px">'
+    +'<div class="add-clause-title">+ Add Clause to Review</div>'
+    +'<div class="add-row">'
+    +'<textarea id="AddOrig" placeholder="Paste original clause text here..."></textarea>'
+    +'<select id="AddType"><option value="note">As Note</option><option value="revise">Revision</option></select>'
+    +'</div>'
+    +'<input class="add-note-input" id="AddNote" placeholder="Risk description / revision direction...">'
+    +'<button class="add-btn" onclick="addClauseFromTable()">Add to Table</button>'
+    +'</div>'
+    +'<div class="rtable-footer" style="margin-top:16px">'
+    +'<div style="display:flex;align-items:center;gap:4px;">'
+    +'<button onclick="adjTableFont(-1)" style="width:22px;height:22px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:11px;">A-</button>'
+    +'<button onclick="adjTableFont(1)" style="width:22px;height:22px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:13px;">A+</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;">'
+    +'<button class="btn-sec" onclick="goPage(1)">← Back to Scan</button>'
+    +'<button class="btn-sec" onclick="exportWord(\'highlight\')" id="ExportHLBtn" style="border-color:#f59e0b;color:#92400e;">⬇ 导出高亮Word</button>'
+    +'<button class="btn-sec" onclick="exportWord(\'revise\')" id="ExportRVBtn" style="border-color:#3b82f6;color:#1d4ed8;">⬇ 导出修订Word</button>'
+    +'<button class="btn-primary" onclick="genReport()">Generate Report →</button>'
+    +'</div></div>';
+}
+
+function setRevDecRT(id, dec){
+  var card=g('rcard'+id); if(!card)return;
+  card.classList.remove('accepted','rejected','moved');
+  card.querySelectorAll('.rac').forEach(function(b){ b.classList.remove('ok','no','nt'); });
+  if(dec==='ok'){ card.classList.add('accepted'); card.querySelectorAll('.rac')[0].classList.add('ok'); }
+  else if(dec==='no'){ card.classList.add('rejected'); card.querySelectorAll('.rac')[1].classList.add('no'); }
+  else if(dec==='nt'){ card.classList.add('moved'); card.querySelectorAll('.rac')[2].classList.add('nt'); }
+}
+
+function setNoteDecRT(id, dec){
+  var card=g('ncard'+id); if(!card)return;
+  card.classList.remove('dismissed');
+  card.querySelectorAll('.nac').forEach(function(b){ b.classList.remove('inc','dis'); });
+  if(dec==='inc'){ card.querySelectorAll('.nac')[0].classList.add('inc'); }
+  else if(dec==='dis'){ card.classList.add('dismissed'); card.querySelectorAll('.nac')[1].classList.add('dis'); }
+}
+
+function doRegenRT(id, n){
+  var instruction=(g('reginp'+id)||{}).value||'';
+  var item=D.reviewTable&&D.reviewTable.filter(function(r){return r.action_type==='revise';})[n];
+  if(!item)return;
+  var btn=g('regen'+id); if(btn) btn.querySelector('.regen-btn').disabled=true;
+  var k=key(),pr=g('PR').value.trim()||'Party A',ol=g('OL').value,ct=g('CT').value;
+  var payload={
+    inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:'',
+      original:item.original||'',issue:item.issue||'',instruction:instruction||''},
+    query:'REVISE_REQUEST: Please generate revision suggestion for the above clause.',
+    response_mode:'blocking',user:D.uid
+  };
+  if(D.convId) payload.conversation_id=D.convId;
+  var x=new XMLHttpRequest();
+  x.open('POST',base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload=function(){
+    if(btn) btn.querySelector('.regen-btn').disabled=false;
+    if(x.status!==200){showErr('Regen',x.status,x.responseText);return;}
+    var data=JSON.parse(x.responseText);
+    var sugg=data.answer||'';
+    var cleanSugg=sugg;
+    try{ var se=JSON.parse(sugg); if(se.error) cleanSugg=''; }catch(e){}
+    if(cleanSugg){
+      if(D.reviewTable&&D.reviewTable.filter(function(r){return r.action_type==='revise';})[n])
+        D.reviewTable.filter(function(r){return r.action_type==='revise';})[n].suggested_revision=cleanSugg;
+      _revEditState[id] = {raw: cleanSugg};
+      var panel=g('revpanel'+id);
+      if(panel){
+        var rendered = panel.querySelector('.rev-rendered');
+        if(rendered){ rendered.innerHTML=renderRedline(cleanSugg); rendered.style.display=''; }
+        var area = g('reveditarea'+id);
+        if(area) area.style.display='none';
+        var ebtn = g('revedit'+id);
+        if(ebtn){ ebtn.classList.remove('editing'); ebtn.textContent='✎ Edit'; }
+      }
+      toast('Revision updated');
+      if(btn) btn.classList.remove('open');
+    } else { showErr('Regen',null,'LLM returned error. Check Dify node.'); }
+  };
+  x.onerror=function(){if(btn) btn.querySelector('.regen-btn').disabled=false; showErr('Regen',null,'');};
+  x.send(JSON.stringify(payload));
+}
+
+function buildRevCard(idx, c, n){
+  var sugg=D.suggestions[idx]||c.suggestion||'';
+  var dec=D.revDecs[idx]||'';
+  return '<div class="rcard'+(dec==='ok'?' accepted':dec==='no'?' rejected':dec==='nt'?' moved':'')+'" id="rcard'+idx+'">'
+    +'<div class="rcard-head" onclick="togCard(\'rcard'+idx+'\')">'
+    +'<span class="rcard-num">#'+pad(n+1)+'</span>'
+    +'<span class="sec-badge badge-rev">Revision</span>'
+    +(c.clause_ref?'<span class="rcard-ref">'+esc(c.clause_ref)+'</span>':'')
+    +'<span class="rcard-name">'+esc(c.clause_name||'Clause')+'</span>'
+    +'<span class="rcard-tog">∨</span></div>'
+    +'<div class="rcard-body">'
+    +'<div class="rcard-issue">'+esc(c.issue||'')+'</div>'
+    +'<div class="rdiff">'
+    +'<div class="rdiff-panel dpanel-orig"><div class="rdiff-lbl">✕ Original</div>'+esc(c.original||'—')+'</div>'
+    +'<div class="rdiff-panel dpanel-rev"><div class="rdiff-lbl">✓ Suggested Revision</div>'+(sugg?renderRedline(sugg):'<span style="color:var(--ink-muted);font-style:italic;">No suggestion generated.</span>')+'</div>'
+    +'</div>'
+    +'<div class="rcard-actions">'
+    +'<button class="rac'+(dec==='ok'?' ok':'')+'" onclick="setRevDec(\''+idx+'\',\'ok\')">✓ Accept</button>'
+    +'<button class="rac'+(dec==='no'?' no':'')+'" onclick="setRevDec(\''+idx+'\',\'no\')">✕ Reject</button>'
+    +'<button class="rac'+(dec==='nt'?' nt':'')+'" onclick="setRevDec(\''+idx+'\',\'nt\')">→ Keep as Note</button>'
+    +'<button class="rac re" onclick="toggleRegen(\''+idx+'\')">↺ Regen</button>'
+    +'</div>'
+    +'<div class="reinput-wrap" id="regen'+idx+'">'
+    +'<textarea class="reinput" id="reginp'+idx+'" placeholder="New revision direction..."></textarea>'
+    +'<button class="regen-btn" onclick="doRegen(\''+idx+'\')">Regenerate</button>'
+    +'</div>'
+    +'</div></div>';
+}
+
+function buildNoteCard(idx, c, n){
+  var dec=D.noteDecs[idx]||'';
+  return '<div class="ncard'+(dec==='dis'?' dismissed':dec==='up'?' upgraded':'')+'" id="ncard'+idx+'">'
+    +'<div class="ncard-head" onclick="togCard(\'ncard'+idx+'\')">'
+    +'<span class="rcard-num">#'+pad(n+1)+'</span>'
+    +'<span class="sec-badge badge-note">Note</span>'
+    +(c.clause_ref?'<span class="rcard-ref">'+esc(c.clause_ref)+'</span>':'')
+    +'<span class="ncard-name">'+esc(c.clause_name||'Clause')+'</span>'
+    +'<span class="rcard-tog">∨</span></div>'
+    +'<div class="ncard-body">'
+    +'<div class="ncard-text">'+esc(c.issue||c.note||'—')+'</div>'
+    +'<div class="ncard-actions">'
+    +'<button class="nac'+(dec==='inc'?' inc':'')+'" onclick="setNoteDec(\''+idx+'\',\'inc\')">✓ Include</button>'
+    +'<button class="nac'+(dec==='dis'?' dis':'')+'" onclick="setNoteDec(\''+idx+'\',\'dis\')">✕ Dismiss</button>'
+    +'<button class="nac'+(dec==='up'?' up':'')+'" onclick="upgradeToRevision(\''+idx+'\')">↑ Upgrade to Revision</button>'
+    +'</div>'
+    +'<div class="reinput-wrap" id="upinp'+idx+'">'
+    +'<textarea class="reinput" id="upinptxt'+idx+'" placeholder="Revision direction (optional)..."></textarea>'
+    +'<button class="regen-btn" onclick="doUpgrade(\''+idx+'\')">Generate Revision</button>'
+    +'</div>'
+    +'</div></div>';
+}
+
+function togCard(id){ var el=g(id); if(el) el.classList.toggle('open'); }
+function pad(n){ return n<10?'0'+n:''+n; }
+
+function setRevDec(idx, dec){
+  var prev=D.revDecs[idx];
+  var card=g('rcard'+idx); if(!card)return;
+  if(prev===dec){
+    /* toggle off */
+    D.revDecs[idx]='';
+    card.classList.remove('accepted','rejected','moved');
+    card.querySelectorAll('.rac').forEach(function(b){ b.classList.remove('ok','no','nt'); });
+    return;
+  }
+  var old=prev;
+  D.revDecs[idx]=dec;
+  card.classList.remove('accepted','rejected','moved');
+  if(dec==='ok') card.classList.add('accepted');
+  else if(dec==='no') card.classList.add('rejected');
+  else if(dec==='nt') card.classList.add('moved');
+  card.querySelectorAll('.rac').forEach(function(b){ b.classList.remove('ok','no','nt'); });
+  var clsMap={ok:'ok',no:'no',nt:'nt'};
+  card.querySelectorAll('.rac').forEach(function(b){
+    var t=b.textContent.trim();
+    if(dec==='ok'&&t.indexOf('Accept')>=0) b.classList.add('ok');
+    else if(dec==='no'&&t.indexOf('Reject')>=0) b.classList.add('no');
+    else if(dec==='nt'&&t.indexOf('Note')>=0) b.classList.add('nt');
+  });
+  var msg={ok:'Accepted revision',no:'Rejected clause',nt:'Moved to notes'}[dec]||'';
+  showUndo(msg+': '+((D.clauses[idx]||D.userClauses[parseInt((idx+'').replace('u',''))]||{}).clause_name||'clause'), function(){
+    D.revDecs[idx]=old||'';
+    card.classList.remove('accepted','rejected','moved');
+    card.querySelectorAll('.rac').forEach(function(b){ b.classList.remove('ok','no','nt'); });
+  });
+}
+
+function setNoteDec(idx, dec){
+  var prev=D.noteDecs[idx];
+  var card=g('ncard'+idx); if(!card)return;
+  if(prev===dec){ D.noteDecs[idx]=''; card.classList.remove('dismissed','upgraded'); return; }
+  var old=prev;
+  D.noteDecs[idx]=dec;
+  card.classList.remove('dismissed','upgraded');
+  if(dec==='dis') card.classList.add('dismissed');
+  card.querySelectorAll('.nac').forEach(function(b){ b.classList.remove('inc','dis','up'); });
+  card.querySelectorAll('.nac').forEach(function(b){
+    var t=b.textContent.trim();
+    if(dec==='inc'&&t.indexOf('Include')>=0) b.classList.add('inc');
+    else if(dec==='dis'&&t.indexOf('Dismiss')>=0) b.classList.add('dis');
+  });
+  var name=(D.clauses[idx]||{clause_name:'clause'}).clause_name||'clause';
+  showUndo((dec==='inc'?'Included':'Dismissed')+': '+name, function(){
+    D.noteDecs[idx]=old||'';
+    card.classList.remove('dismissed','upgraded');
+  });
+}
+
+function upgradeToRevision(idx){
+  var card=g('ncard'+idx); if(!card)return;
+  var wrap=g('upinp'+idx); if(wrap) wrap.classList.toggle('open');
+}
+
+function doUpgrade(idx){
+  var card=g('ncard'+idx); if(!card)return;
+  var instruction=(g('upinptxt'+idx)||{}).value||'';
+  var isUser=String(idx).startsWith('u');
+  var c=isUser?D.userClauses[parseInt(idx.replace('u',''))]:D.clauses[parseInt(idx)];
+  if(!c)return;
+  D.noteDecs[idx]='up';
+  card.classList.add('upgraded');
+  var btn=card.querySelector('.regen-btn');
+  if(btn){btn.disabled=true;btn.textContent='Generating...';}
+  callLLM2(idx,c,instruction,function(sugg){
+    if(btn){btn.disabled=false;btn.textContent='Generate Revision';}
+    if(sugg){ D.suggestions[idx]=sugg; toast('Revision generated for upgraded clause'); }
+    /* move to revision section */
+    D.decisions[idx]='revise';
+    genTable();
+  });
+}
+
+function toggleRegen(idx){
+  var wrap=g('regen'+idx); if(wrap) wrap.classList.toggle('open');
+}
+
+function doRegen(idx){
+  var instruction=(g('reginp'+idx)||{}).value||'';
+  var isUser=String(idx).startsWith('u');
+  var c=isUser?D.userClauses[parseInt(idx.replace('u',''))]:D.clauses[parseInt(idx)];
+  if(!c)return;
+  var btn=g('regen'+idx).querySelector('.regen-btn');
+  if(btn){btn.disabled=true;btn.textContent='Regenerating...';}
+  callLLM2(idx,c,instruction,function(sugg){
+    if(btn){btn.disabled=false;btn.textContent='Regenerate';}
+    if(sugg){
+      /* strip error JSON if present */
+      var cleanSugg=sugg;
+      try{ var se=JSON.parse(sugg); if(se.error) cleanSugg=''; }catch(e){}
+      if(cleanSugg){
+        D.suggestions[idx]=cleanSugg;
+        var card=g('rcard'+idx);
+        if(card){
+          var panel=card.querySelector('.dpanel-rev');
+          if(panel){ panel.innerHTML='<div class="rdiff-lbl">✓ Suggested Revision</div>'+renderRedline(cleanSugg); }
+        }
+        toast('Revision updated');
+      } else {
+        showErr('Revision Generation',null,'LLM 2 returned an error. Check Dify node configuration.');
+      }
+    }
+  });
+}
+
+function addClauseFromTable(){
+  var orig=(g('AddOrig')||{}).value||'';
+  var type=(g('AddType')||{}).value||'note';
+  var note=(g('AddNote')||{}).value||'';
+  if(!orig.trim()){toast('Please paste the original clause text');return;}
+
+  if(g('AddOrig')) g('AddOrig').value='';
+  if(g('AddNote')) g('AddNote').value='';
+
+  /* Add new item to reviewTable and re-render */
+  if(!D.reviewTable) D.reviewTable=[];
+  var newItem={
+    clause_ref:'Added',
+    clause_name:'Added: '+orig.slice(0,40)+(orig.length>40?'...':''),
+    original:orig,
+    issue:note||'User-flagged clause.',
+    level:'user',
+    action_type:type,
+    suggested_revision:''
+  };
+
+  if(type==='revise'){
+    toast('Generating revision...');
+    var k=key(),pr=g('PR').value.trim()||'Party A',ol=g('OL').value,ct=g('CT').value;
+    var payload={
+      inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:'',
+        original:orig,issue:note||'',instruction:note||''},
+      query:'REVISE_REQUEST: Please generate revision suggestion for the above clause.',
+      response_mode:'blocking',user:D.uid
+    };
+    if(D.convId) payload.conversation_id=D.convId;
+    var x=new XMLHttpRequest();
+    x.open('POST',base()+'/chat-messages');
+    x.setRequestHeader('Authorization','Bearer '+k);
+    x.setRequestHeader('Content-Type','application/json');
+    x.onload=function(){
+      if(x.status===200){
+        var data=JSON.parse(x.responseText);
+        var sugg=data.answer||'';
+        try{ var se=JSON.parse(sugg); if(se.error) sugg=''; }catch(e){}
+        if(sugg) newItem.suggested_revision=sugg;
+      }
+      D.reviewTable.push(newItem);
+      renderReviewTable(D.reviewTable);
+      toast('Clause added'+(newItem.suggested_revision?' with revision':''));
+    };
+    x.onerror=function(){ D.reviewTable.push(newItem); renderReviewTable(D.reviewTable); toast('Clause added (revision failed)'); };
+    x.send(JSON.stringify(payload));
+  } else {
+    D.reviewTable.push(newItem);
+    renderReviewTable(D.reviewTable);
+    toast('Clause added as note');
+  }
+}
+
+/* ══════════════════════════════════════════
+   GENERATE REPORT (LLM 3)
+══════════════════════════════════════════ */
+function genReport(){
+  ld(true,'Generating report...');
+  var summary=buildDecisionSummary();
+  var k=key(),ct=g('CT').value,pr=g('PR').value.trim()||'Party A',ol=g('OL').value;
+  var payload={
+    inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:''},
+    query:'REPORT_REQUEST:\n'+summary,
+    response_mode:'blocking',user:D.uid
+  };
+  if(D.convId) payload.conversation_id=D.convId;
+  var x=new XMLHttpRequest();
+  x.open('POST',base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload=function(){
+    ld(false);
+    if(x.status!==200){showErr('Report Generation',x.status,x.responseText);return;}
+    var data=JSON.parse(x.responseText);
+    if(!D.convId){D.convId=data.conversation_id;lsSet('cr_conv_id',D.convId);}
+    renderReport(data.answer||'');
+  };
+  x.onerror=function(){showErr('Report Generation',null,'');};
+  x.send(JSON.stringify(payload));
+}
+
+function buildDecisionSummary(){
+  var s='User Review Decisions:\n\n';
+  s+='[Revision Suggestions]\n';
+  D.clauses.forEach(function(c,i){
+    var dec=D.revDecs[i]||D.decisions[i]||'undecided';
+    if(D.decisions[i]==='revise'){
+      s+='- '+c.clause_name+': '+(dec==='ok'?'ACCEPTED':(dec==='no'?'REJECTED':(dec==='nt'?'MOVED TO NOTES':'UNDECIDED')));
+      if(D.suggestions[i]) s+='\n  Suggestion: '+D.suggestions[i];
+      s+='\n';
+    }
+  });
+  s+='\n[Clause Notes]\n';
+  D.clauses.forEach(function(c,i){
+    if(D.decisions[i]==='note'){
+      var dec=D.noteDecs[i]||'undecided';
+      s+='- '+c.clause_name+': '+(dec==='inc'?'INCLUDE':(dec==='dis'?'DISMISS':(dec==='up'?'UPGRADED TO REVISION':'UNDECIDED')))+'\n';
+    }
+  });
+  D.userClauses.forEach(function(c,i){
+    var idx='u'+i, dec=D.revDecs[idx]||D.noteDecs[idx]||D.decisions[idx]||'undecided';
+    s+='- [User Added] '+c.clause_name+': '+dec+'\n';
+  });
+  return s;
+}
+
+function renderReport(text){
+  g('ReportBody').innerHTML=renderMd(text);
+  g('FUWrap').style.display='block';
+  goPage(3);
+  saveHistRecord();
+}
+
+function cpyReport(){
+  var t=g('ReportBody').textContent;
+  if(navigator.clipboard){ navigator.clipboard.writeText(t).then(function(){ toast('Copied!'); }); }
+  else{ var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);toast('Copied!'); }
+}
+
+/* ══════════════════════════════════════════
+   FOLLOW-UP (LLM 4)
+══════════════════════════════════════════ */
+function fuKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendFU();} }
+
+function sendFU(){
+  if(D.sendingFU)return;
+  var inp=g('FQ'),msg=inp.value.trim(); if(!msg)return;
+  D.sendingFU=true; inp.value=''; g('FUSend').disabled=true;
+  addFUMsg('u',msg);
+  var tid='th'+Date.now(); addFUMsg('ai','Thinking…',tid,true);
+  var k=key(),ct=g('CT').value,pr=g('PR').value.trim()||'Party A',ol=g('OL').value;
+  var payload={
+    inputs:{contract_type:ct,party_role:pr,output_language:ol,additional_instructions:''},
+    query:msg, response_mode:'blocking', user:D.uid
+  };
+  if(D.convId) payload.conversation_id=D.convId;
+  var x=new XMLHttpRequest();
+  x.open('POST',base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload=function(){
+    rmFUMsg(tid);
+    if(x.status!==200){showErr('Follow-up',x.status,x.responseText);g('FUSend').disabled=false;D.sendingFU=false;return;}
+    var data=JSON.parse(x.responseText);
+    if(!D.convId){D.convId=data.conversation_id;lsSet('cr_conv_id',D.convId);}
+    addFUMsg('ai',data.answer||'(no response)');
+    g('FUSend').disabled=false; D.sendingFU=false; inp.focus();
+  };
+  x.onerror=function(){rmFUMsg(tid);showErr('Follow-up',null,'');g('FUSend').disabled=false;D.sendingFU=false;};
+  x.send(JSON.stringify(payload));
+}
+
+function addFUMsg(role,text,id,th){
+  var h=g('FUHist'),d=document.createElement('div');
+  d.className='msg '+(role==='u'?'msg-u':'msg-ai')+(th?' msg-th':'');
+  if(id) d.id=id;
+  if(role==='ai'&&!th){ d.innerHTML=renderMd(text); }
+  else{ d.textContent=text; }
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+function rmFUMsg(id){ var e=g(id); if(e) e.remove(); }
+
+/* ══════════════════════════════════════════
+   SIDEBAR TOGGLE
+══════════════════════════════════════════ */
+function toggleAside(){
+  var shell=document.querySelector('.shell');
+  var btn=g('AsideToggleBtn');
+  shell.classList.toggle('aside-collapsed');
+  var collapsed=shell.classList.contains('aside-collapsed');
+  btn.innerHTML=collapsed?'&#9776; Show':'&#9776;';
+  btn.title=collapsed?'Show sidebar':'Hide sidebar';
+}
+
+function showAsideToggle(show){
+  var btn=g('AsideToggleBtn');
+  if(btn) btn.style.display=show?'inline-flex':'none';
+}
+
+/* ══════════════════════════════════════════
+   FONT SIZE + INLINE PROMPT
+══════════════════════════════════════════ */
+var _fontSize=13, _rightFontSize=12, _tableFontSize=13, _reportFontSize=13;
+function adjFont(delta){
+  _fontSize=Math.max(10,Math.min(20,_fontSize+delta));
+  var b=g('ScanBody'); if(b) b.style.fontSize=_fontSize+'px';
+}
+function adjRightFont(delta){
+  _rightFontSize=Math.max(10,Math.min(20,_rightFontSize+delta));
+  var r=g('ScanRight'); if(r) r.style.fontSize=_rightFontSize+'px';
+}
+var _reviewLeftFontSize=13, _reviewRightFontSize=12;
+function adjReviewLeftFont(delta){
+  _reviewLeftFontSize=Math.max(10,Math.min(20,_reviewLeftFontSize+delta));
+  var b=g('ReviewBody'); if(b) b.style.fontSize=_reviewLeftFontSize+'px';
+  setTimeout(positionReviewCards,80);
+}
+function adjReviewRightFont(delta){
+  _reviewRightFontSize=Math.max(10,Math.min(20,_reviewRightFontSize+delta));
+  /* Cards have hardcoded font sizes — update each card directly */
+  var container=g('ReviewAnnotContainer');
+  if(!container) return;
+  container.querySelectorAll('.rv-rendered,.nt-rendered,.rev-edit-area,.revise-input,.regen-btn,.ract').forEach(function(el){
+    el.style.fontSize=_reviewRightFontSize+'px';
+  });
+  setTimeout(positionReviewCards,80);
+}
+function adjTableFont(delta){ adjReviewLeftFont(delta); }
+function adjReportFont(delta){
+  _reportFontSize=Math.max(10,Math.min(20,_reportFontSize+delta));
+  var r=g('ReportBody'); if(r) r.style.fontSize=_reportFontSize+'px';
+  var f=g('FUHist'); if(f) f.style.fontSize=_reportFontSize+'px';
+}
+
+window._inlinePrompt=function(label){
+  return new Promise(function(resolve){
+    var panel=document.createElement('div');
+    panel.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--paper);border:1px solid var(--border);border-radius:10px;padding:20px;z-index:500;min-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.15)';
+    panel.innerHTML='<div style="font-size:13px;font-weight:600;margin-bottom:10px;">'+label+'</div>'
+      +'<textarea id="_ip_inp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:var(--sans);font-size:13px;resize:none;min-height:60px;outline:none;" placeholder="(optional)"></textarea>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">'
+      +'<button id="_ip_cancel" style="padding:6px 16px;border:1px solid var(--border);border-radius:5px;background:var(--paper-dark);cursor:pointer;font-size:12px;">Cancel</button>'
+      +'<button id="_ip_ok" style="padding:6px 16px;border:none;border-radius:5px;background:var(--ink);color:#fff;cursor:pointer;font-size:12px;">Confirm</button>'
+      +'</div>';
+    var mask=document.createElement('div');
+    mask.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:499';
+    document.body.appendChild(mask);
+    document.body.appendChild(panel);
+    panel.querySelector('#_ip_inp').focus();
+    panel.querySelector('#_ip_ok').onclick=function(){
+      var v=panel.querySelector('#_ip_inp').value;
+      document.body.removeChild(panel); document.body.removeChild(mask);
+      resolve(v);
+    };
+    panel.querySelector('#_ip_cancel').onclick=function(){
+      document.body.removeChild(panel); document.body.removeChild(mask);
+      resolve(undefined);
+    };
+    panel.querySelector('#_ip_inp').addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();panel.querySelector('#_ip_ok').click();}
+    });
+  });
+};
+
+/* addUserClause: wraps selected text with color highlight, adds card to bottom panel */
+function addUserClause(type){
+  g('SelPopup').classList.remove('show');
+  var text=_selText; _selText='';
+  var range=_selRange; _selRange=null;
+  var color=_selColor||'yellow';
+  if(!text)return;
+
+  var idx='u'+D.userClauses.length;
+
+  /* ── Wrap selected text in-place with a colored highlight span ── */
+  if(range){
+    try{
+      var hlSpan=document.createElement('span');
+      hlSpan.className='hl-user-'+color+' hl-click hl-user-span';
+      hlSpan.setAttribute('data-idx',idx);
+      hlSpan.setAttribute('data-user','1');
+      hlSpan.onclick=function(){ selectRisk(idx); };
+      range.surroundContents(hlSpan);
+      window.getSelection().removeAllRanges();
+    }catch(e){
+      /* If range spans multiple elements, fallback — no highlight */
+      console.warn('Highlight wrap failed:', e);
+    }
+  }
+
+  var c={
+    clause_name:'Added: '+text.slice(0,40)+(text.length>40?'...':''),
+    original:text,
+    issue:'User-flagged clause.',
+    level: color==='red'?'high': color==='yellow'?'mid':'low',
+    suggestion:'',
+    userColor: color
+  };
+  D.userClauses.push(c);
+  D.decisions[idx]=type==='note'?'note':'revise';
+
+  renderRiskList(); /* pre-creates card in RiskList */
+
+  /* ── Position new card directly at highlight Y — no jump to top ── */
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      var scanLeft = g('ScanLeft');
+      var card = g('rc'+idx);
+      var hlSpan = scanLeft && scanLeft.querySelector('.hl-click[data-idx="'+idx+'"]');
+      var rightHdr = g('ScanRight') && g('ScanRight').querySelector('.scan-right-hdr');
+      var hdrH = rightHdr ? rightHdr.offsetHeight : 0;
+
+      if(card && hlSpan && scanLeft){
+        /* Compute position now while layout is fresh */
+        var slr = scanLeft.getBoundingClientRect();
+        var hlr = hlSpan.getBoundingClientRect();
+        var idealTop = (hlr.top - slr.top) + scanLeft.scrollTop - hdrH;
+        card.style.top = Math.max(0, idealTop) + 'px';
+        card.style.visibility = 'visible';
+        card.classList.remove('collapsed');
+
+        /* Mark active */
+        D._activeRiskIdx = String(idx);
+        document.querySelectorAll('.risk-card').forEach(function(el){ el.classList.remove('active'); });
+        card.classList.add('active');
+        document.querySelectorAll('.hl-click').forEach(function(el){ el.classList.remove('hl-selected'); });
+        hlSpan.classList.add('hl-selected');
+
+        /* Open input box for both revise and note */
+        if(type==='revise'||type==='note'){
+          var riw = g('riw'+idx);
+          if(riw) riw.classList.add('open');
+          setTimeout(function(){ var ta=g('ri'+idx); if(ta) ta.focus(); }, 60);
+        }
+
+        /* Full reposition after a tick to resolve any overlap */
+        setTimeout(positionCards, 80);
+      } else {
+        /* No highlight (range wrap failed) — fall back to normal flow */
+        positionCards();
+        selectRisk(idx);
+      }
+    });
+  });
+
+  updateScanProg();
+  /* No callLLM2 — feedback collected locally, sent together via genTable */
+}
+
+/* ══════════════════════════════════════════
+   RESIZABLE DIVIDER
+══════════════════════════════════════════ */
+(function(){
+  var divider=document.getElementById('ScanDivider');
+  var left=document.getElementById('ScanLeft');
+  var right=document.getElementById('ScanRight');
+  var wrap=document.getElementById('ScanWrap');
+  if(!divider||!left||!right||!wrap) return;
+  var dragging=false, startX=0, startLeftW=0, startRightW=0;
+  divider.addEventListener('mousedown',function(e){
+    dragging=true;
+    startX=e.clientX;
+    startLeftW=left.getBoundingClientRect().width;
+    startRightW=right.getBoundingClientRect().width;
+    divider.classList.add('dragging');
+    document.body.style.cursor='col-resize';
+    document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',function(e){
+    if(!dragging) return;
+    var dx=e.clientX-startX;
+    var newLeft=Math.max(200, startLeftW+dx);
+    var newRight=Math.max(200, startRightW-dx);
+    left.style.flex='none';
+    left.style.width=newLeft+'px';
+    right.style.width=newRight+'px';
+  });
+  document.addEventListener('mouseup',function(){
+    if(!dragging) return;
+    dragging=false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor='';
+    document.body.style.userSelect='';
+  });
+})();
+
+/* ── Review page divider ── */
+(function(){
+  var divider=document.getElementById('ReviewDivider');
+  var left=document.getElementById('ReviewLeft');
+  var right=document.getElementById('ReviewRight');
+  if(!divider||!left||!right) return;
+  var dragging=false, startX=0, startLeftW=0, startRightW=0;
+  divider.addEventListener('mousedown',function(e){
+    dragging=true;
+    startX=e.clientX;
+    startLeftW=left.getBoundingClientRect().width;
+    startRightW=right.getBoundingClientRect().width;
+    divider.classList.add('dragging');
+    document.body.style.cursor='col-resize';
+    document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',function(e){
+    if(!dragging) return;
+    var dx=e.clientX-startX;
+    var newLeft=Math.max(200,startLeftW+dx);
+    var newRight=Math.max(200,startRightW-dx);
+    left.style.flex='none';
+    left.style.width=newLeft+'px';
+    right.style.width=newRight+'px';
+    positionReviewCards();
+  });
+  document.addEventListener('mouseup',function(){
+    if(!dragging) return;
+    dragging=false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor='';
+    document.body.style.userSelect='';
+  });
+})();
+
+/* ══════════════════════════════════════════
+   EXPORT WORD — 调用本地Python服务
+══════════════════════════════════════════ */
+function exportWord(mode){
+  if(!D.file){toast('No contract file available. Please upload a Word file.');return;}
+  if(D.file.name.indexOf('.docx')<0){toast('只支持Word(.docx)文件导出');return;}
+  if(!D.reviewTable||!D.reviewTable.length){toast('请先生成审查表');return;}
+
+  var btn=g(mode==='highlight'?'ExportHLBtn':'ExportRVBtn');
+  if(btn){btn.disabled=true;btn.textContent='处理中...';}
+
+  var fd=new FormData();
+  fd.append('file', D.file);
+  fd.append('review_data', JSON.stringify(D.reviewTable));
+
+  var url='http://localhost:5001/'+(mode==='highlight'?'highlight':'revise');
+
+  fetch(url,{method:'POST',body:fd})
+  .then(function(resp){
+    if(!resp.ok){
+      return resp.json().then(function(e){ throw new Error(e.error||'服务器错误'); });
+    }
+    return resp.blob();
+  })
+  .then(function(blob){
+    var a=document.createElement('a');
+    var suffix=mode==='highlight'?'_高亮版.docx':'_修订版.docx';
+    a.href=URL.createObjectURL(blob);
+    a.download=(D.file.name.replace('.docx','')+suffix);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(mode==='highlight'?'高亮版Word已下载':'修订版Word已下载');
+  })
+  .catch(function(e){
+    if(e.message&&e.message.indexOf('fetch')>-1){
+      toast('无法连接本地服务，请确认已启动 启动服务.bat');
+    } else {
+      toast('导出失败: '+e.message);
+    }
+  })
+  .finally(function(){
+    if(btn){
+      btn.disabled=false;
+      btn.textContent=mode==='highlight'?'⬇ 导出高亮Word':'⬇ 导出修订Word';
+    }
+  });
+}
+
+/* ══════════════════════════════════════════
+   HISTORY — per-contract upsert
+══════════════════════════════════════════ */
+function histKey(){ return (key()||'default').slice(0,20); }
+
+function saveHistRecord(){
+  if(!D.clauses||!D.clauses.length) return;
+  var k=histKey();
+  // 用fileName+contractType作为合同唯一标识（同一份合同覆盖旧记录）
+  var contractId = (D.fileName||'unknown')+'__'+(((g('CT')||{}).value)||'');
+  var idxRaw = lsGet('hist_idx_'+k);
+  var idx = idxRaw ? JSON.parse(idxRaw) : [];
+
+  // 查找是否已有同一合同的记录
+  var existingPos = -1;
+  var existingKey = null;
+  for(var i=0;i<idx.length;i++){
+    if(idx[i].contractId === contractId){
+      existingPos = i; existingKey = idx[i].key; break;
+    }
+  }
+
+  var ts = existingPos >= 0 ? idx[existingPos].ts : Date.now();
+  var rk = existingKey || ('hist_rec_'+k+'_'+ts);
+
+  // 判断当前进度
+  var progress = 'scan';
+  if(D.report) progress = 'report';
+  else if(D.reviewTable&&D.reviewTable.length) progress = 'table';
+
+  var rec = {
+    ts: ts, updatedAt: Date.now(),
+    date: new Date(ts).toLocaleString(),
+    updatedDate: new Date().toLocaleString(),
+    fileName: D.fileName||'Unknown',
+    contractId: contractId,
+    contractType: ((g('CT')||{}).value)||'',
+    partyRole: ((g('PR')||{}).value)||'',
+    convId: D.convId||null,
+    clauses: D.clauses,
+    userClauses: D.userClauses||[],
+    decisions: D.decisions||{},
+    instructions: D.instructions||{},
+    contractText: D.contractText||'',
+    reviewTable: D.reviewTable||null,
+    report: D.report||null,
+    progress: progress
+  };
+
+  lsSet(rk, JSON.stringify(rec));
+
+  var meta = {
+    ts:ts, key:rk, contractId:contractId,
+    fileName:rec.fileName, date:rec.date,
+    updatedDate:rec.updatedDate,
+    clauseCount:D.clauses.length,
+    contractType:rec.contractType,
+    progress:progress
+  };
+
+  if(existingPos >= 0){
+    idx[existingPos] = meta; // 覆盖
+  } else {
+    idx.unshift(meta); // 新增
+    if(idx.length>20){
+      var removed=idx.splice(20);
+      removed.forEach(function(r){lsDel(r.key);});
+    }
+  }
+  lsSet('hist_idx_'+k, JSON.stringify(idx));
+}
+
+function loadHistRecord(rk){
+  var raw=lsGet(rk);
+  if(!raw){toast('Record not found');return;}
+  var rec=JSON.parse(raw);
+  D.clauses=rec.clauses||[];
+  D.userClauses=rec.userClauses||[];
+  D.decisions=rec.decisions||{};
+  D.instructions=rec.instructions||{};
+  D.convId=rec.convId||null;
+  D.contractText=rec.contractText||'';
+  D.fileName=rec.fileName||'';
+  D.reviewTable=rec.reviewTable||null;
+  D.report=rec.report||null;
+  if(D.convId) lsSet('cr_conv_id',D.convId);
+  if(rec.contractType&&g('CT')) g('CT').value=rec.contractType;
+  if(rec.partyRole&&g('PR')) g('PR').value=rec.partyRole;
+  hideHist();
+  // 恢复到最新进度页面
+  if(rec.progress==='report'&&D.report){
+    renderScan();
+    if(D.contractText){ g('ScanBody').innerHTML=buildContractHtml(D.contractText, D.clauses.map(function(c,i){return {idx:i,original:c.original,level:c.level};})); }
+    renderReviewTable(D.reviewTable);
+    g('ReportBody').innerHTML=D.report;
+    goPage(3);
+  } else if(rec.progress==='table'&&D.reviewTable){
+    renderScan();
+    if(D.contractText){ g('ScanBody').innerHTML=buildContractHtml(D.contractText, D.clauses.map(function(c,i){return {idx:i,original:c.original,level:c.level};})); }
+    renderReviewTable(D.reviewTable);
+    goPage(2);
+  } else {
+    renderScan();
+    if(D.contractText){ g('ScanBody').innerHTML=buildContractHtml(D.contractText, D.clauses.map(function(c,i){return {idx:i,original:c.original,level:c.level};})); }
+    goPage(1);
+  }
+  toast('Restored: '+rec.fileName+' ('+rec.progress+')');
+}
+
+function deleteHistRecord(rk,contractId){
+  var k=histKey();
+  lsDel(rk);
+  var idx=JSON.parse(lsGet('hist_idx_'+k)||'[]');
+  idx=idx.filter(function(r){return r.contractId!==contractId;});
+  lsSet('hist_idx_'+k,JSON.stringify(idx));
+  renderHistList();
+}
+
+function showHist(){ g('HistPanel').classList.add('on'); renderHistList(); }
+function hideHist(){ g('HistPanel').classList.remove('on'); }
+
+function renderHistList(){
+  var k=histKey();
+  var idx=JSON.parse(lsGet('hist_idx_'+k)||'[]');
+  var list=g('HistList');
+  var progressLabel={scan:'Scan',table:'Review Table',report:'Report'};
+  var progressColor={scan:'#6b7280',table:'#7c3aed',report:'#059669'};
+  if(!idx.length){
+    list.innerHTML='<div class="hist-empty">No history yet.<br><span style="font-size:11px;">Saved automatically after scan / table / report.</span></div>';
+    return;
+  }
+  var html='';
+  idx.forEach(function(r,i){
+    var prog=r.progress||'scan';
+    var color=progressColor[prog]||'#6b7280';
+    var label=progressLabel[prog]||prog;
+    html+='<div class="hist-item" data-ridx="'+i+'">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;">'
+      +'<div class="hist-name">'+esc(r.fileName||'')+'</div>'
+      +'<span style="font-size:10px;background:'+color+';color:#fff;padding:1px 7px;border-radius:10px;flex-shrink:0;margin-left:8px;">'+label+'</span>'
+      +'</div>'
+      +'<div class="hist-meta">'
+      +'<span>'+esc(r.updatedDate||r.date||'')+'</span>'
+      +'<span>'+(r.clauseCount||0)+' clauses</span>'
+      +'<span>'+esc(r.contractType||'')+'</span>'
+      +'</div>'
+      +'<button class="hist-del" data-ridx="'+i+'">Delete</button>'
+      +'</div>';
+  });
+  list.innerHTML=html;
+  // 绑定点击事件（避免引号嵌套问题）
+  list.querySelectorAll('.hist-item').forEach(function(el){
+    var i=parseInt(el.getAttribute('data-ridx'));
+    var r=idx[i];
+    el.addEventListener('click',function(e){
+      if(e.target.classList.contains('hist-del')) return;
+      loadHistRecord(r.key);
+    });
+    var delBtn=el.querySelector('.hist-del');
+    if(delBtn){
+      delBtn.addEventListener('click',function(e){
+        e.stopPropagation();
+        deleteHistRecord(r.key, r.contractId||'');
+      });
+    }
+  });
+}
+
+function reset(){
+  D.convId=null; D.file=null; D.fid=null; D.wordText=null;
+  D.contractText='';
+  D.clauses=[]; D.decisions={}; D.instructions={}; D.suggestions={}; D.userClauses=[];
+  D.revDecs={}; D.noteDecs={}; D.sendingFU=false;
+  lsDel('cr_conv_id');
+  g('FI').value=''; g('FN').textContent='';
+  g('UB').classList.add('done'); g('UB').textContent='📄 从 Word 文档读取';
+  g('GO').disabled=true;
+  g('FUHist').innerHTML=''; g('FUWrap').style.display='none';
+  g('ScanBody').innerHTML=''; g('RiskList').innerHTML='';
+  g('RTableWrap').innerHTML=''; g('ReportBody').innerHTML='';
+  goPage(0);
+}
+
+
+/* ══════════════════════════════════════════
+   IMPORT REVIEW TABLE
+══════════════════════════════════════════ */
+function showImportTableDialog(){
+  var modal=g('ImportTableModal');
+  if(modal){ modal.style.display='flex'; g('ImportTableInput').value=''; g('ImportTableError').style.display='none'; }
+}
+function hideImportTableDialog(){
+  var modal=g('ImportTableModal');
+  if(modal) modal.style.display='none';
+}
+function importTableFromJson(){
+  var raw=(g('ImportTableInput').value||'').trim();
+  var errEl=g('ImportTableError');
+  errEl.style.display='none';
+  if(!raw){ errEl.textContent='请先粘贴审查表JSON内容'; errEl.style.display='block'; return; }
+  var tableData=null;
+  var rtIdx=raw.indexOf('REVIEW_TABLE:');
+  if(rtIdx!==-1){
+    var jsonStr=raw.slice(rtIdx+13).trim();
+    try{ tableData=JSON.parse(jsonStr); }catch(e){
+      var m=jsonStr.match(/\{[\s\S]*\}/);
+      if(m){ try{ tableData=JSON.parse(m[0]); }catch(e2){} }
+    }
+  }
+  if(!tableData){
+    try{ tableData=JSON.parse(raw); }catch(e){
+      var m2=raw.match(/\{[\s\S]*\}/);
+      if(m2){ try{ tableData=JSON.parse(m2[0]); }catch(e2){} }
+    }
+  }
+  var reviewTable=(tableData&&tableData.review_table)||[];
+  if(!reviewTable.length){
+    errEl.textContent='解析失败，请确认格式正确';
+    errEl.style.display='block';
+    return;
+  }
+  D.reviewTable=reviewTable;
+  hideImportTableDialog();
+  renderReviewTable(reviewTable);
+  goPage(2);
+}
+</script>
+
+<!-- 导入审查表弹窗 -->
+<div id="ImportTableModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:10px;padding:28px;width:620px;max-width:92vw;display:flex;flex-direction:column;gap:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <div style="font-size:15px;font-weight:600;color:var(--ink);">导入审查表</div>
+    <div style="font-size:12px;color:var(--ink-muted);">将Dify输出的审查表JSON粘贴到下方，支持两种格式：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">REVIEW_TABLE: {"review_table":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"review_table":[...]}</code></div>
+    <textarea id="ImportTableInput" style="width:100%;height:200px;border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:11px;resize:vertical;outline:none;line-height:1.5;" placeholder="在此粘贴审查表JSON..."></textarea>
+    <div id="ImportTableError" style="display:none;color:#dc2626;font-size:12px;padding:8px 12px;background:#fef2f2;border-radius:6px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn-sec" onclick="hideImportTableDialog()">取消</button>
+      <button class="btn-primary" onclick="importTableFromJson()">导入并显示 →</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- History Panel -->
+<div id="HistPanel" class="hist-panel" onclick="if(event.target===this)hideHist()">
+  <div class="hist-box">
+    <div class="hist-hdr">
+      <h3>Review History</h3>
+      <button class="hist-close" onclick="hideHist()">×</button>
+    </div>
+    <div class="hist-list" id="HistList"></div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:11px;color:var(--ink-muted);">Per API key · Max 20 contracts</span>
+      <button class="btn-sec" onclick="hideHist()" style="font-size:12px;padding:5px 12px;">Close</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

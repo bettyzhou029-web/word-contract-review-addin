@@ -528,6 +528,7 @@ main{display:flex;flex-direction:column;overflow:hidden;}
         <div class="scan-right" id="ReviewRight" style="flex:1;overflow:hidden;width:100%;display:flex;flex-direction:column;">
           <div class="scan-right-hdr">
             <div class="scan-right-title">Revisions &amp; Notes</div>
+            <span id="WordWriteStatus" style="font-family:var(--mono);font-size:9px;color:#6b7280;margin-left:8px;">—</span>
             <div style="display:flex;align-items:center;gap:4px;margin-left:auto;">
               <button onclick="adjReviewRightFont(-1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:10px;line-height:1;">A-</button>
               <button onclick="adjReviewRightFont(1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:12px;line-height:1;">A+</button>
@@ -2234,6 +2235,142 @@ function parseAndRenderTable(raw, requestObj){
   renderReviewTable(reviewTable);
   goPage(2);
   saveHistRecord();
+  /* Auto-write to Word: notes as comments, revisions as Track Changes */
+  setTimeout(writeReviewToWord, 600);
+}
+
+/* ══════════════════════════════════════════
+   WRITE REVIEW TO WORD
+   Notes → insertComment()
+   Revise → Track Changes with minimal diff from [+..+][-...-]
+══════════════════════════════════════════ */
+
+/* Parse [+add+] [-del-] markers into segments */
+function parseRedlineSegments(str){
+  var segments = [];
+  var remaining = str || '';
+  var addRe = /\[\+(.+?)\+\]/;
+  var delRe = /\[-(.*?)-\]/;
+  while(remaining.length > 0){
+    var addM = addRe.exec(remaining);
+    var delM = delRe.exec(remaining);
+    var firstIdx = Infinity, firstType = null, firstMatch = null;
+    if(addM && addM.index < firstIdx){ firstIdx = addM.index; firstType = 'add'; firstMatch = addM; }
+    if(delM && delM.index < firstIdx){ firstIdx = delM.index; firstType = 'del'; firstMatch = delM; }
+    if(!firstMatch){
+      /* No more markers — rest is plain text */
+      if(remaining) segments.push({type:'keep', text:remaining});
+      break;
+    }
+    if(firstIdx > 0) segments.push({type:'keep', text:remaining.slice(0, firstIdx)});
+    if(firstType === 'add') segments.push({type:'add', text:firstMatch[1]});
+    else segments.push({type:'del', text:firstMatch[1]});
+    remaining = remaining.slice(firstIdx + firstMatch[0].length);
+  }
+  return segments;
+}
+
+function writeReviewToWord(){
+  if(typeof Word === 'undefined' || !D.reviewTable || !D.reviewTable.length) return;
+
+  var statusEl = g('WordWriteStatus');
+  if(statusEl) statusEl.textContent = '⏳ Writing to Word...';
+
+  var noteItems   = D.reviewTable.filter(function(r){ return r.action_type==='note'   && r.original && r.original!=='N/A'; });
+  var reviseItems = D.reviewTable.filter(function(r){ return r.action_type==='revise' && r.original && r.original!=='N/A'; });
+
+  var written = 0, failed = 0;
+  var total = noteItems.length + reviseItems.length;
+
+  function updateStatus(){
+    var statusEl2 = g('WordWriteStatus');
+    if(statusEl2){
+      if(written+failed >= total){
+        statusEl2.textContent = '✓ Written: ' + written + ' items' + (failed>0?' ('+failed+' failed)':'');
+        statusEl2.style.color = failed > 0 ? '#f59e0b' : '#16a34a';
+      } else {
+        statusEl2.textContent = '⏳ Writing... ' + (written+failed) + '/' + total;
+      }
+    }
+  }
+
+  /* ── Write NOTE items as Word comments ── */
+  noteItems.forEach(function(item){
+    var commentText = item.suggested_revision || item.issue || '';
+    if(!commentText) return;
+    var startSnip = item.original.replace(/\s+/g,' ').trim().slice(0,30);
+    Word.run(function(context){
+      var paras = context.document.body.paragraphs;
+      paras.load('items');
+      return context.sync().then(function(){
+        /* Find paragraph containing start of original text */
+        var targetPara = null;
+        var startLow = startSnip.toLowerCase();
+        for(var i=0; i<paras.items.length; i++){
+          if(paras.items[i].text.toLowerCase().indexOf(startLow) >= 0){
+            targetPara = paras.items[i]; break;
+          }
+        }
+        if(!targetPara){ failed++; updateStatus(); return; }
+        targetPara.insertComment(commentText);
+        return context.sync().then(function(){ written++; updateStatus(); });
+      });
+    }).catch(function(){ failed++; updateStatus(); });
+  });
+
+  /* ── Write REVISE items as Track Changes ── */
+  reviseItems.forEach(function(item){
+    var sugg = item.suggested_revision || '';
+    var segments = parseRedlineSegments(sugg);
+    /* Check if there are actual changes */
+    var hasChanges = segments.some(function(s){ return s.type==='add'||s.type==='del'; });
+    if(!hasChanges){ written++; updateStatus(); return; }
+
+    var cleaned = item.original.replace(/\s+/g,' ').trim();
+    var startSnip = cleaned.slice(0,30).toLowerCase();
+    var endSnip   = cleaned.slice(-30).toLowerCase();
+
+    Word.run(function(context){
+      var body = context.document.body;
+      var paras = body.paragraphs;
+      paras.load('items');
+      /* Enable track changes */
+      context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+      return context.sync().then(function(){
+        /* Find start and end paragraphs */
+        var startIdx = -1, endIdx = -1;
+        for(var i=0; i<paras.items.length; i++){
+          var pl = paras.items[i].text.toLowerCase();
+          if(startIdx===-1 && pl.indexOf(startSnip)>=0) startIdx=i;
+          if(pl.indexOf(endSnip)>=0) endIdx=i;
+        }
+        if(startIdx < 0){ failed++; updateStatus(); return; }
+        if(endIdx < startIdx) endIdx = startIdx;
+
+        var si = Math.min(startIdx, paras.items.length-1);
+        var ei = Math.min(endIdx, paras.items.length-1);
+        var range = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+
+        /* Build the new text from segments (del segments removed, add segments kept) */
+        var newText = segments.map(function(s){
+          if(s.type==='del') return '';
+          return s.text;
+        }).join('');
+
+        /* Replace the range content with Track Changes enabled */
+        range.insertText(newText, 'Replace');
+        return context.sync().then(function(){ written++; updateStatus(); });
+      });
+    }).catch(function(e){
+      console.log('Track changes error:', e.message);
+      failed++; updateStatus();
+    });
+  });
+
+  if(total === 0){
+    var s = g('WordWriteStatus');
+    if(s){ s.textContent = '✓ No items to write'; s.style.color='#6b7280'; }
+  }
 }
 
 /* ══════════════════════════════════════════

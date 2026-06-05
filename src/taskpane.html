@@ -26,9 +26,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:
 /* ── Word Add-in layout: aside fills full width on P0 ── */
 .shell{display:grid;grid-template-columns:300px 1fr;grid-template-rows:56px 1fr;min-height:100vh;transition:grid-template-columns .25s;}
 .shell.aside-collapsed{grid-template-columns:0px 1fr;}
-.shell.p0-mode{grid-template-columns:1fr; grid-template-rows:1fr;}
+.shell.p0-mode{display:block;}
 .shell.p0-mode header{display:none!important;}
-.shell.p0-mode aside{border-right:none; grid-row:1; grid-column:1;}
+.shell.p0-mode aside{width:100%;height:100vh;border-right:none;grid-row:unset;grid-column:unset;}
 .shell.p0-mode main{display:none;}
 header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 28px;background:#0f172a;border-bottom:1px solid #1e293b;height:56px;}
 .logo-img{height:26px;width:auto;}
@@ -666,6 +666,16 @@ var D = {
   sendingFU: false
 };
 lsSet('cr_uid', D.uid);
+
+/* DEBUG: check Office.js status */
+setTimeout(function(){
+  var btn = g('UB');
+  if(btn && btn.disabled){
+    var officeStatus = typeof Office !== 'undefined' ? 'Office defined, onReady not fired' : 'Office is UNDEFINED';
+    btn.textContent = '⚠ ' + officeStatus;
+    btn.style.fontSize = '10px';
+  }
+}, 3000);
 
 /* ══════════════════════════════════════════
    UTILITIES

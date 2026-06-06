@@ -912,7 +912,19 @@ function readFromWord(){
     body.load('text');
     paragraphs.load('items');
     return context.sync().then(function(){
-      var text = body.text;
+      /* Normalize special characters from Word */
+      function normalizeWordText(s){
+        return s
+          .replace(/[\u201c\u201d\u201e\u201f]/g, '"')  /* curly double quotes */
+          .replace(/[\u2018\u2019\u201a\u201b]/g, "'")  /* curly single quotes */
+          .replace(/[\u2013\u2014]/g, '-')               /* en/em dash */
+          .replace(/\u00a0/g, ' ')                       /* non-breaking space */
+          .replace(/\u2026/g, '...')                     /* ellipsis */
+          .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '') /* control chars */
+          .replace(/\r\n/g, '\n').replace(/\r/g, '\n');  /* normalize line endings */
+      }
+
+      var text = normalizeWordText(body.text);
       if(!text || text.trim().length < 50){
         g('FN').textContent = '❌ 文档内容太少';
         btn.textContent = '📄 从 Word 文档读取';
@@ -924,7 +936,7 @@ function readFromWord(){
       D.fileName = '当前Word文档';
       /* Store paragraph texts for precise range highlighting */
       D.wordParas = paragraphs.items.map(function(p){
-        return p.text.replace(/\r/g,'').trim();
+        return normalizeWordText(p.text.replace(/\r/g,'').trim());
       });
       g('FN').textContent = '✓ 已读取 ' + text.length + ' 字符 / ' + D.wordParas.length + ' 段落';
       btn.textContent = '✓ 重新读取';
@@ -1045,11 +1057,16 @@ function parseScanResult(raw){
 
   /* Find SCAN_RESULT: marker */
   var scanIdx=raw.indexOf('SCAN_RESULT:');
+  /* Normalize curly/smart quotes to straight quotes before parsing */
+  function normQuotes(s){
+    return s.replace(/[\u201c\u201d\u201e\u201f]/g,'"').replace(/[\u2018\u2019\u201a\u201b]/g,"'");
+  }
+
   if(scanIdx!==-1){
-    var scanStr=raw.slice(scanIdx+12).trim();
+    var scanStr=normQuotes(raw.slice(scanIdx+12).trim());
     try{ clauses=JSON.parse(scanStr).clauses||[]; }catch(e){
       var m=scanStr.match(/\{[\s\S]*\}/);
-      if(m){ try{ clauses=JSON.parse(m[0]).clauses||[]; }catch(e2){
+      if(m){ try{ clauses=JSON.parse(normQuotes(m[0])).clauses||[]; }catch(e2){
         showErr('Parse Error',null,
           'SCAN_RESULT: found but JSON invalid.\n\nContent after SCAN_RESULT: (first 400 chars):\n'+scanStr.slice(0,400));
         return;

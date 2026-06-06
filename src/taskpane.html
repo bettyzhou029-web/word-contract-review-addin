@@ -509,6 +509,23 @@ main{display:flex;flex-direction:column;overflow:hidden;}
           </div>
           <div class="scan-footer">
             <div class="prog-bar-wrap"><div class="prog-bar-fill" id="ProgBarFill" style="width:0%"></div></div>
+            <!-- AI Edit Panel: shown when Word text is selected -->
+            <div id="AiEditPanel" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:#f8fafc;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                <span style="font-size:9px;font-family:var(--mono);color:#64748b;text-transform:uppercase;letter-spacing:.06em;">Selected Text</span>
+                <button onclick="clearAiEditPanel()" style="margin-left:auto;font-size:10px;color:#94a3b8;background:none;border:none;cursor:pointer;">✕</button>
+              </div>
+              <div id="AiEditQuote" style="font-size:11px;color:#374151;background:#f1f5f9;border-left:3px solid #94a3b8;padding:5px 8px;border-radius:3px;margin-bottom:6px;max-height:60px;overflow-y:auto;line-height:1.5;"></div>
+              <div style="display:flex;gap:6px;">
+                <input id="AiEditInstr" type="text" placeholder="输入修订指令，例如：加入甲方书面同意前置条件..." style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;outline:none;" onkeydown="if(event.key==='Enter')sendAiEdit()"/>
+                <button onclick="sendAiEdit()" id="AiEditBtn" style="font-size:11px;padding:5px 10px;background:#0f172a;color:#fff;border:none;border-radius:4px;cursor:pointer;">AI →</button>
+              </div>
+              <div id="AiEditResult" style="display:none;margin-top:6px;font-size:11px;line-height:1.6;background:#fff;border:1px solid var(--border);border-radius:4px;padding:6px 8px;max-height:100px;overflow-y:auto;"></div>
+              <div id="AiEditActions" style="display:none;margin-top:6px;display:none;gap:6px;">
+                <button onclick="acceptAiEdit()" style="font-size:11px;padding:4px 10px;background:#16a34a;color:#fff;border:none;border-radius:4px;cursor:pointer;">✓ Accept</button>
+                <button onclick="clearAiEditPanel()" style="font-size:11px;padding:4px 10px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;color:#64748b;">✕ Dismiss</button>
+              </div>
+            </div>
             <div class="scan-footer-row">
               <div class="scan-prog" id="ScanProg">Select action for each item</div>
               <div style="display:flex;gap:8px;">
@@ -1031,11 +1048,13 @@ function parseScanResult(raw){
   }
 
   D.clauses=clauses;
-  D.contractText=wordText; /* use Word text as contract text */
+  D.contractText=wordText;
 
   renderScan();
   goPage(1);
   saveHistRecord();
+  /* Start monitoring Word selection for AI edit panel */
+  setTimeout(initWordSelectionMonitor, 500);
 }
 
 
@@ -2274,105 +2293,151 @@ function writeReviewToWord(){
   if(typeof Word === 'undefined' || !D.reviewTable || !D.reviewTable.length) return;
 
   var statusEl = g('WordWriteStatus');
-  if(statusEl) statusEl.textContent = '⏳ Writing to Word...';
+  if(statusEl){ statusEl.textContent = '⏳ Writing to Word...'; statusEl.style.color='#6b7280'; }
 
-  var noteItems   = D.reviewTable.filter(function(r){ return r.action_type==='note'   && r.original && r.original!=='N/A'; });
-  var reviseItems = D.reviewTable.filter(function(r){ return r.action_type==='revise' && r.original && r.original!=='N/A'; });
-
-  var written = 0, failed = 0;
+  var noteItems   = D.reviewTable.filter(function(r){ return r.action_type==='note'   && r.original && r.original!=='N/A' && r.original!==''; });
+  var reviseItems = D.reviewTable.filter(function(r){ return r.action_type==='revise' && r.original && r.original!=='N/A' && r.original!==''; });
   var total = noteItems.length + reviseItems.length;
+  var written = 0, failed = 0;
 
   function updateStatus(){
-    var statusEl2 = g('WordWriteStatus');
-    if(statusEl2){
-      if(written+failed >= total){
-        statusEl2.textContent = '✓ Written: ' + written + ' items' + (failed>0?' ('+failed+' failed)':'');
-        statusEl2.style.color = failed > 0 ? '#f59e0b' : '#16a34a';
-      } else {
-        statusEl2.textContent = '⏳ Writing... ' + (written+failed) + '/' + total;
-      }
+    var s = g('WordWriteStatus');
+    if(!s) return;
+    if(written+failed >= total){
+      s.textContent = '✓ ' + written + ' written' + (failed>0 ? ' / '+failed+' failed':'');
+      s.style.color = failed > 0 ? '#f59e0b' : '#16a34a';
+    } else {
+      s.textContent = '⏳ ' + (written+failed) + '/' + total;
     }
   }
 
-  /* ── Write NOTE items as Word comments ── */
+  if(total === 0){
+    var s2 = g('WordWriteStatus');
+    if(s2){ s2.textContent = '—'; s2.style.color='#6b7280'; }
+    return;
+  }
+
+  /* ── NOTE → Word Comment ── */
   noteItems.forEach(function(item){
-    var commentText = item.suggested_revision || item.issue || '';
-    if(!commentText) return;
-    var startSnip = item.original.replace(/\s+/g,' ').trim().slice(0,30);
+    var commentText = item.suggested_revision
+      ? item.suggested_revision.replace(/^\[|\]$/g,'').trim()
+      : (item.issue||'');
+    if(!commentText){ written++; updateStatus(); return; }
+
+    var startSnip = item.original.replace(/\s+/g,' ').trim().slice(0,30).toLowerCase();
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
       return context.sync().then(function(){
-        /* Find paragraph containing start of original text */
         var targetPara = null;
-        var startLow = startSnip.toLowerCase();
         for(var i=0; i<paras.items.length; i++){
-          if(paras.items[i].text.toLowerCase().indexOf(startLow) >= 0){
+          if(paras.items[i].text.toLowerCase().indexOf(startSnip)>=0){
             targetPara = paras.items[i]; break;
           }
         }
         if(!targetPara){ failed++; updateStatus(); return; }
-        targetPara.insertComment(commentText);
-        return context.sync().then(function(){ written++; updateStatus(); });
-      });
-    }).catch(function(){ failed++; updateStatus(); });
-  });
-
-  /* ── Write REVISE items as Track Changes ── */
-  reviseItems.forEach(function(item){
-    var sugg = item.suggested_revision || '';
-    var segments = parseRedlineSegments(sugg);
-    /* Check if there are actual changes */
-    var hasChanges = segments.some(function(s){ return s.type==='add'||s.type==='del'; });
-    if(!hasChanges){ written++; updateStatus(); return; }
-
-    var cleaned = item.original.replace(/\s+/g,' ').trim();
-    var startSnip = cleaned.slice(0,30).toLowerCase();
-    var endSnip   = cleaned.slice(-30).toLowerCase();
-
-    Word.run(function(context){
-      var body = context.document.body;
-      var paras = body.paragraphs;
-      paras.load('items');
-      /* Enable track changes */
-      context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-      return context.sync().then(function(){
-        /* Find start and end paragraphs */
-        var startIdx = -1, endIdx = -1;
-        for(var i=0; i<paras.items.length; i++){
-          var pl = paras.items[i].text.toLowerCase();
-          if(startIdx===-1 && pl.indexOf(startSnip)>=0) startIdx=i;
-          if(pl.indexOf(endSnip)>=0) endIdx=i;
-        }
-        if(startIdx < 0){ failed++; updateStatus(); return; }
-        if(endIdx < startIdx) endIdx = startIdx;
-
-        var si = Math.min(startIdx, paras.items.length-1);
-        var ei = Math.min(endIdx, paras.items.length-1);
-        var range = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-
-        /* Build the new text from segments (del segments removed, add segments kept) */
-        var newText = segments.map(function(s){
-          if(s.type==='del') return '';
-          return s.text;
-        }).join('');
-
-        /* Replace the range content with Track Changes enabled */
-        range.insertText(newText, 'Replace');
+        /* insertComment on the paragraph range */
+        var range = targetPara.getRange();
+        range.insertComment(commentText);
         return context.sync().then(function(){ written++; updateStatus(); });
       });
     }).catch(function(e){
-      console.log('Track changes error:', e.message);
+      console.log('Comment error:', e.message||e);
       failed++; updateStatus();
     });
   });
 
-  if(total === 0){
-    var s = g('WordWriteStatus');
-    if(s){ s.textContent = '✓ No items to write'; s.style.color='#6b7280'; }
-  }
-}
+  /* ── REVISE → Track Changes (minimal diff) ── */
+  reviseItems.forEach(function(item){
+    var segs = parseRedlineSegments(item.suggested_revision||'');
+    var hasChanges = segs.some(function(s){ return s.type==='add'||s.type==='del'; });
+    if(!hasChanges){ written++; updateStatus(); return; }
 
+    /* Find del and add pairs — process sequentially in one Word.run */
+    var cleaned = item.original.replace(/\s+/g,' ').trim();
+
+    Word.run(function(context){
+      context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+      var body = context.document.body;
+
+      /* We need to process each del/add operation */
+      /* Build a chain of operations via sequential search+replace */
+      return context.sync().then(function(){
+        /* Process segments sequentially */
+        function processSegs(segList, idx){
+          if(idx >= segList.length) return Promise.resolve();
+          var seg = segList[idx];
+          if(seg.type === 'keep'){
+            return processSegs(segList, idx+1);
+          }
+          if(seg.type === 'del'){
+            /* Search for the del text and delete it (track changes will record it) */
+            var delText = seg.text.replace(/\s+/g,' ').trim();
+            if(!delText) return processSegs(segList, idx+1);
+            return Word.run(function(ctx2){
+              ctx2.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+              var results = ctx2.document.body.search(delText, {matchCase:false, matchWholeWord:false});
+              results.load('items');
+              return ctx2.sync().then(function(){
+                if(results.items.length > 0){
+                  results.items[0].insertText('', 'Replace');
+                }
+                return ctx2.sync();
+              });
+            }).then(function(){ return processSegs(segList, idx+1); })
+             .catch(function(){ return processSegs(segList, idx+1); });
+          }
+          if(seg.type === 'add'){
+            /* Find anchor: the keep segment before this add */
+            var anchor = '';
+            for(var k=idx-1; k>=0; k--){
+              if(segList[k].type==='keep' && segList[k].text.trim().length>10){
+                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20);
+                break;
+              }
+              if(segList[k].type==='del' && k>0){
+                /* anchor is text before the del */
+                for(var k2=k-1; k2>=0; k2--){
+                  if(segList[k2].type==='keep' && segList[k2].text.trim().length>5){
+                    anchor = segList[k2].text.replace(/\s+/g,' ').trim().slice(-20);
+                    break;
+                  }
+                }
+                break;
+              }
+            }
+            var addText = seg.text;
+            if(!anchor){ return processSegs(segList, idx+1); }
+            return Word.run(function(ctx3){
+              ctx3.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+              var results = ctx3.document.body.search(anchor, {matchCase:false, matchWholeWord:false});
+              results.load('items');
+              return ctx3.sync().then(function(){
+                if(results.items.length > 0){
+                  results.items[0].getRange('End').insertText(addText, 'After');
+                }
+                return ctx3.sync();
+              });
+            }).then(function(){ return processSegs(segList, idx+1); })
+             .catch(function(){ return processSegs(segList, idx+1); });
+          }
+          return processSegs(segList, idx+1);
+        }
+
+        return processSegs(segs, 0);
+      }).then(function(){
+        /* Turn off track changes after done */
+        return Word.run(function(ctx4){
+          ctx4.document.changeTrackingMode = Word.ChangeTrackingMode.off;
+          return ctx4.sync();
+        });
+      }).then(function(){ written++; updateStatus(); });
+    }).catch(function(e){
+      console.log('Revise error:', e.message||e);
+      failed++; updateStatus();
+    });
+  });
+}
 /* ══════════════════════════════════════════
    REVIEW-MODE HIGHLIGHT COLORS
    Called when entering P2 (review table page)
@@ -2385,26 +2450,55 @@ function applyReviewHighlights(){
 }
 
 function applyReviewHighlightsWord(){
-  if(typeof Word === 'undefined') return;
-  /* Re-highlight P2 items: revise=Pink, note=Turquoise */
-  setTimeout(function(){
-    (D.reviewTable||[]).forEach(function(item){
-      if(item.original && item.original !== 'N/A'){
-        var lvl = item.action_type==='revise' ? 'high' : 'low';
-        highlightInWord(item.original, lvl);
-      }
+  /* P2: no batch color highlight — Word Track Changes and comments handle the visual */
+  /* Individual card clicks will select/jump via reviewSelectCard */
+}
+
+function selectInWordOnly(text){
+  /* Select (jump to) text in Word without adding color highlight */
+  if(typeof Word === 'undefined' || !text) return;
+  var cleaned = text.replace(/\s+/g,' ').trim();
+  if(!cleaned) return;
+
+  if(D.wordParas && D.wordParas.length){
+    var startSnip = cleaned.slice(0,30).toLowerCase();
+    var endSnip   = cleaned.slice(-30).toLowerCase();
+    var startIdx = -1, endIdx = -1;
+    for(var i=0; i<D.wordParas.length; i++){
+      var pl = D.wordParas[i].toLowerCase();
+      if(startIdx===-1 && pl.indexOf(startSnip)>=0) startIdx=i;
+      if(pl.indexOf(endSnip)>=0) endIdx=i;
+    }
+    if(startIdx>=0){
+      if(endIdx<startIdx) endIdx=startIdx;
+      Word.run(function(context){
+        var paras = context.document.body.paragraphs;
+        paras.load('items');
+        return context.sync().then(function(){
+          var si=Math.min(startIdx,paras.items.length-1);
+          var ei=Math.min(endIdx,paras.items.length-1);
+          var merged=paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+          merged.select();
+          return context.sync();
+        });
+      }).catch(function(){});
+      return;
+    }
+  }
+  /* Fallback */
+  Word.run(function(context){
+    var r=context.document.body.search(cleaned.slice(0,60),{matchCase:false,matchWholeWord:false});
+    r.load('items');
+    return context.sync().then(function(){
+      if(r.items.length) r.items[0].select();
+      return context.sync();
     });
-  }, 300);
+  }).catch(function(){});
 }
 
 function selectReviewCard(id){
-  /* Highlight in Word when review card is clicked */
   var entry = D.reviewTable && D.reviewTable.filter(function(e){ return e.id===id; })[0];
-  if(entry && entry.original){
-    var dec = D.revDecs[id];
-    var level = dec==='no'?'high': dec==='ok'?'low':'mid';
-    highlightInWord(entry.original, level);
-  }
+  if(entry && entry.original) selectInWordOnly(entry.original);
 }
 
 /* ══════════════════════════════════════════
@@ -2732,8 +2826,7 @@ function reviewSelectCard(key){
     var items4=(D.reviewTable||[]).filter(function(r){return r.action_type===type4;});
     var item4=items4[ni4];
     if(item4&&item4.original){
-      var lvl4=type4==='revise'?'high':'low';
-      highlightInWord(item4.original, lvl4);
+      selectInWordOnly(item4.original);
     }
     /* Scroll right panel to active card */
     var rrb=g('ReviewRightBody');
@@ -3196,8 +3289,200 @@ function cpyReport(){
 }
 
 /* ══════════════════════════════════════════
-   FOLLOW-UP (LLM 4)
+   WORD SELECTION → AI EDIT PANEL
 ══════════════════════════════════════════ */
+var _selectionHandler = null;
+var _aiEditSelectedText = '';
+var _aiEditSuggestion = '';
+
+function initWordSelectionMonitor(){
+  if(typeof Word === 'undefined') return;
+  Word.run(function(context){
+    context.document.onSelectionChanged.add(function(){
+      onWordSelectionChanged();
+    });
+    return context.sync();
+  }).catch(function(){});
+}
+
+function onWordSelectionChanged(){
+  if(typeof Word === 'undefined') return;
+  Word.run(function(context){
+    var sel = context.document.getSelection();
+    sel.load('text');
+    return context.sync().then(function(){
+      var text = (sel.text||'').trim();
+      if(text.length > 5){
+        _aiEditSelectedText = text;
+        showAiEditPanel(text);
+      }
+    });
+  }).catch(function(){});
+}
+
+function showAiEditPanel(text){
+  var panel = g('AiEditPanel');
+  var quote = g('AiEditQuote');
+  var result = g('AiEditResult');
+  var actions = g('AiEditActions');
+  if(!panel) return;
+  quote.textContent = text.length > 200 ? text.slice(0,200)+'…' : text;
+  if(result){ result.style.display='none'; result.textContent=''; }
+  if(actions){ actions.style.display='none'; }
+  var instr = g('AiEditInstr'); if(instr) instr.value='';
+  panel.style.display = 'block';
+}
+
+function clearAiEditPanel(){
+  var panel = g('AiEditPanel');
+  if(panel) panel.style.display='none';
+  _aiEditSelectedText = '';
+  _aiEditSuggestion = '';
+}
+
+function sendAiEdit(){
+  var instr = g('AiEditInstr');
+  var msg = instr ? instr.value.trim() : '';
+  if(!msg || !_aiEditSelectedText) return;
+
+  var btn = g('AiEditBtn');
+  var result = g('AiEditResult');
+  var actions = g('AiEditActions');
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  if(result){ result.style.display='block'; result.textContent='Thinking…'; }
+  if(actions){ actions.style.display='none'; }
+
+  var k = key();
+  var ct = g('CT').value, pr = g('PR').value.trim()||'Party A', ol = g('OL').value;
+  var fullMsg = '请根据以下指令修订合同条款。\n\n原文：\n'+_aiEditSelectedText+'\n\n修订指令：'+msg+'\n\n请直接输出修订后的完整条款文字，使用[+新增文字+]和[-删除文字-]标注变化。';
+
+  var payload = {
+    inputs:{contract_type:ct, party_role:pr, output_language:ol, additional_instructions:''},
+    query: fullMsg,
+    response_mode: 'blocking',
+    user: D.uid
+  };
+  if(D.convId) payload.conversation_id = D.convId;
+
+  var x = new XMLHttpRequest();
+  x.open('POST', base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload = function(){
+    if(btn){ btn.disabled=false; btn.textContent='AI →'; }
+    if(x.status!==200){
+      if(result) result.textContent='Error: '+x.status;
+      return;
+    }
+    var data = JSON.parse(x.responseText);
+    if(!D.convId && data.conversation_id){
+      D.convId = data.conversation_id;
+      lsSet('cr_conv_id', D.convId);
+    }
+    _aiEditSuggestion = data.answer||'';
+    if(result){
+      result.style.display='block';
+      result.innerHTML = renderMd(_aiEditSuggestion);
+    }
+    if(actions){ actions.style.display='flex'; }
+  };
+  x.onerror = function(){
+    if(btn){ btn.disabled=false; btn.textContent='AI →'; }
+    if(result) result.textContent='Network error';
+  };
+  x.send(JSON.stringify(payload));
+}
+
+function acceptAiEdit(){
+  if(!_aiEditSuggestion || !_aiEditSelectedText) return;
+  if(typeof Word === 'undefined'){ toast('Word API not available'); return; }
+
+  /* Parse redline markers and apply as Track Changes */
+  var segs = parseRedlineSegments(_aiEditSuggestion);
+  var hasChanges = segs.some(function(s){ return s.type==='add'||s.type==='del'; });
+
+  /* If no markers, replace whole selection with suggestion */
+  if(!hasChanges){
+    Word.run(function(context){
+      context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+      var sel = context.document.getSelection();
+      sel.insertText(_aiEditSuggestion, 'Replace');
+      return context.sync().then(function(){
+        return Word.run(function(ctx2){
+          ctx2.document.changeTrackingMode = Word.ChangeTrackingMode.off;
+          return ctx2.sync();
+        });
+      });
+    }).catch(function(e){ toast('Write error: '+(e.message||e)); });
+  } else {
+    /* Apply minimal diff */
+    var cleaned = _aiEditSelectedText.replace(/\s+/g,' ').trim();
+    var startSnip = cleaned.slice(0,30).toLowerCase();
+    var endSnip = cleaned.slice(-30).toLowerCase();
+    if(D.wordParas && D.wordParas.length){
+      var si=-1, ei=-1;
+      for(var i=0; i<D.wordParas.length; i++){
+        var pl=D.wordParas[i].toLowerCase();
+        if(si===-1&&pl.indexOf(startSnip)>=0) si=i;
+        if(pl.indexOf(endSnip)>=0) ei=i;
+      }
+      if(si>=0){
+        if(ei<si) ei=si;
+        /* Process del/add segments */
+        function applySegs(segList, idx){
+          if(idx>=segList.length) return Promise.resolve();
+          var seg=segList[idx];
+          if(seg.type==='keep') return applySegs(segList,idx+1);
+          if(seg.type==='del'){
+            var delText=seg.text.replace(/\s+/g,' ').trim();
+            if(!delText) return applySegs(segList,idx+1);
+            return Word.run(function(ctx){
+              ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
+              var r=ctx.document.body.search(delText,{matchCase:false,matchWholeWord:false});
+              r.load('items');
+              return ctx.sync().then(function(){
+                if(r.items.length) r.items[0].insertText('','Replace');
+                return ctx.sync();
+              });
+            }).then(function(){ return applySegs(segList,idx+1); })
+             .catch(function(){ return applySegs(segList,idx+1); });
+          }
+          if(seg.type==='add'){
+            var anchor='';
+            for(var k=idx-1;k>=0;k--){
+              if(segList[k].type==='keep'&&segList[k].text.trim().length>5){
+                anchor=segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
+              }
+            }
+            if(!anchor) return applySegs(segList,idx+1);
+            var addText=seg.text;
+            return Word.run(function(ctx){
+              ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
+              var r=ctx.document.body.search(anchor,{matchCase:false,matchWholeWord:false});
+              r.load('items');
+              return ctx.sync().then(function(){
+                if(r.items.length) r.items[0].getRange('End').insertText(addText,'After');
+                return ctx.sync();
+              });
+            }).then(function(){ return applySegs(segList,idx+1); })
+             .catch(function(){ return applySegs(segList,idx+1); });
+          }
+          return applySegs(segList,idx+1);
+        }
+        applySegs(segs,0).then(function(){
+          Word.run(function(ctx){ ctx.document.changeTrackingMode=Word.ChangeTrackingMode.off; return ctx.sync(); });
+          toast('修订已写入 Word');
+          clearAiEditPanel();
+        });
+        return;
+      }
+    }
+  }
+  toast('修订已写入 Word');
+  clearAiEditPanel();
+}
+
+/* Start monitoring when P1 is active */
 function fuKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendFU();} }
 
 function sendFU(){

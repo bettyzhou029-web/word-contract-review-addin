@@ -89,17 +89,19 @@ main{display:flex;flex-direction:column;overflow:hidden;}
 .esub{font-family:var(--mono);font-size:10px;}
 
 /* ── Loading ── */
-.ldg{display:none;position:fixed;inset:0;background:#f8f7f4;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:20px;}
+.ldg{display:none;position:fixed;inset:0;background:#f8f7f4;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
 .ldg.on{display:flex;}
-.ldg-spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#0f172a;border-radius:50%;animation:ldg-rotate 0.8s linear infinite;}
+.ldg-spinner{width:28px;height:28px;border:2px solid #e2e8f0;border-top-color:#475569;border-radius:50%;animation:ldg-rotate 0.9s linear infinite;}
 @keyframes ldg-rotate{to{transform:rotate(360deg);}}
-.ldg-dots{display:flex;gap:6px;align-items:center;}
-.ldg-dot{width:5px;height:5px;border-radius:50%;background:#cbd5e1;animation:ldg-pulse 1.4s ease-in-out infinite;}
+.lmsg{font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.05em;color:#475569;min-width:220px;text-align:center;}
+.lmsg::after{content:'';animation:ldg-cursor .7s step-end infinite;}
+@keyframes ldg-cursor{0%,100%{content:'';}50%{content:'|';}}
+.ldg-dots{display:flex;gap:5px;align-items:center;}
+.ldg-dot{width:4px;height:4px;border-radius:50%;background:#cbd5e1;animation:ldg-pulse 1.4s ease-in-out infinite;}
 .ldg-dot:nth-child(1){animation-delay:0s;}
 .ldg-dot:nth-child(2){animation-delay:.2s;}
 .ldg-dot:nth-child(3){animation-delay:.4s;}
-@keyframes ldg-pulse{0%,80%,100%{transform:scale(0.8);background:#cbd5e1;}40%{transform:scale(1.2);background:#0f172a;}}
-.lmsg{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:#64748b;text-transform:uppercase;}
+@keyframes ldg-pulse{0%,80%,100%{transform:scale(0.7);background:#cbd5e1;}40%{transform:scale(1.3);background:#475569;}}
 @keyframes sc{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 .lmsg{font-family:var(--mono);font-size:11px;color:var(--ink-muted);}
 
@@ -756,13 +758,35 @@ function ld(on,msg){
   if(on){
     ldEl.classList.add('on');
     ldEl.style.display='flex';
-    /* Make sure loading is visible even in p0-mode by moving to body level */
     if(ldEl.parentNode !== document.body) document.body.appendChild(ldEl);
+    if(msg) _ldStartTypewriter(msg);
   } else {
     ldEl.classList.remove('on');
     ldEl.style.display='none';
+    _ldStopTypewriter();
   }
   if(msg) g('LM').textContent=msg;
+}
+
+var _ldTyperTimer = null;
+function _ldStartTypewriter(msg){
+  _ldStopTypewriter();
+  var el = g('LM'); if(!el) return;
+  var i = 0;
+  el.textContent = '';
+  _ldTyperTimer = setInterval(function(){
+    el.textContent = msg.slice(0, i+1);
+    i++;
+    if(i >= msg.length){
+      setTimeout(function(){
+        i = 0;
+        el.textContent = '';
+      }, 800);
+    }
+  }, 55);
+}
+function _ldStopTypewriter(){
+  if(_ldTyperTimer){ clearInterval(_ldTyperTimer); _ldTyperTimer=null; }
 }
 
 function chk(){
@@ -1836,94 +1860,49 @@ function colorClauseInWord(original, clauseRef, level){
   if(typeof Word === 'undefined' || !original) return;
   var colorMap = {high:'#dc2626', mid:'#ea580c', low:'#2563eb'};
   var color = colorMap[level] || colorMap.low;
+  var searchSnip = safeSnip(original, 60);
+  if(!searchSnip) return;
 
   Word.run(function(context){
     var paras = context.document.body.paragraphs;
     paras.load('items');
     return context.sync().then(function(){
       var scope = findClauseScope(paras.items, clauseRef, original);
-      if(!scope) return;
-      var si = scope.scopeStart, ei = scope.scopeEnd;
-      /* Find exact paragraph containing original start */
-      var origSnip = safeSnip(original, 25).toLowerCase();
-      var targetStart = si;
-      for(var i=si; i<=ei; i++){
-        if(safeSnip(paras.items[i].text, 300).toLowerCase().indexOf(origSnip) >= 0){
-          targetStart = i; break;
-        }
-      }
-      /* Find end paragraph */
-      var origEndSnip = safeSnip(original.slice(-25), 25).toLowerCase();
-      var targetEnd = targetStart;
-      for(var i=targetStart; i<=Math.min(targetStart+10, ei); i++){
-        if(safeSnip(paras.items[i].text, 300).toLowerCase().indexOf(origEndSnip) >= 0){
-          targetEnd = i;
-        }
-      }
-      var merged = paras.items[targetStart].getRange('Start')
-        .expandTo(paras.items[targetEnd].getRange('End'));
-      merged.font.color = color;
-      merged.select();
-      return context.sync();
+      var si = scope ? scope.scopeStart : 0;
+      var ei = scope ? scope.scopeEnd : paras.items.length-1;
+      var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+      var results = scopedRange.search(searchSnip, {matchCase:false, matchWholeWord:false});
+      results.load('items');
+      return context.sync().then(function(){
+        if(!results.items.length) return;
+        results.items[0].font.color = color;
+        results.items[0].select();
+        return context.sync();
+      });
     });
   }).catch(function(){});
 }
 
-/* Clear all font color overrides in Word document */
-function clearAllWordColors(){
-  if(typeof Word === 'undefined') return;
-  Word.run(function(context){
-    /* Search all text and reset font color */
-    var body = context.document.body;
-    var all = body.search('*', {matchWildcards: true});
-    all.load('items');
-    return context.sync().then(function(){
-      all.items.forEach(function(r){ r.font.color = 'Auto'; });
-      return context.sync();
-    });
-  }).catch(function(){
-    /* Fallback: paragraph by paragraph */
-    Word.run(function(ctx){
-      var paras = ctx.document.body.paragraphs;
-      paras.load('items');
-      return ctx.sync().then(function(){
-        paras.items.forEach(function(p){ p.font.color = 'Auto'; });
-        return ctx.sync();
-      });
-    }).catch(function(){});
-  });
-}
-
-/* Select (jump to) clause in Word without adding color */
 function selectInWordOnly(original, clauseRef){
   if(typeof Word === 'undefined' || !original) return;
+  var searchSnip = safeSnip(original, 60);
+  if(!searchSnip) return;
+
   Word.run(function(context){
     var paras = context.document.body.paragraphs;
     paras.load('items');
     return context.sync().then(function(){
       var scope = findClauseScope(paras.items, clauseRef||'', original);
-      var si, ei;
-      if(scope){
-        si = scope.scopeStart; ei = scope.scopeEnd;
-      } else {
-        si = 0; ei = paras.items.length - 1;
-      }
-      var origSnip = safeSnip(original, 25).toLowerCase();
-      var origEndSnip = safeSnip(original.slice(-25), 25).toLowerCase();
-      var targetStart = si, targetEnd = si;
-      for(var i=si; i<=ei; i++){
-        var pt = safeSnip(paras.items[i].text, 300).toLowerCase();
-        if(pt.indexOf(origSnip) >= 0){ targetStart = i; break; }
-      }
-      for(var i=targetStart; i<=Math.min(targetStart+10, ei); i++){
-        if(safeSnip(paras.items[i].text, 300).toLowerCase().indexOf(origEndSnip) >= 0){
-          targetEnd = i;
-        }
-      }
-      var merged = paras.items[targetStart].getRange('Start')
-        .expandTo(paras.items[targetEnd].getRange('End'));
-      merged.select();
-      return context.sync();
+      var si = scope ? scope.scopeStart : 0;
+      var ei = scope ? scope.scopeEnd : paras.items.length-1;
+      var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+      var results = scopedRange.search(searchSnip, {matchCase:false, matchWholeWord:false});
+      results.load('items');
+      return context.sync().then(function(){
+        if(!results.items.length) return;
+        results.items[0].select();
+        return context.sync();
+      });
     });
   }).catch(function(){});
 }
@@ -2454,50 +2433,42 @@ function writeReviewToWord(){
   var written = 0, failed = 0;
 
   function updateStatus(){
-    var s = g('WordWriteStatus');
-    if(!s) return;
+    var s = g('WordWriteStatus'); if(!s) return;
     if(written+failed >= total){
-      s.textContent = '✓ ' + written + ' written' + (failed>0?' / '+failed+' failed':'');
-      s.style.color = failed>0 ? '#f59e0b' : '#16a34a';
-    } else {
-      s.textContent = '⏳ '+(written+failed)+'/'+total;
-    }
+      s.textContent = '✓ '+written+' written'+(failed>0?' / '+failed+' failed':'');
+      s.style.color = failed>0?'#f59e0b':'#16a34a';
+    } else { s.textContent = '⏳ '+(written+failed)+'/'+total; }
   }
 
-  if(total===0){
-    var s2=g('WordWriteStatus');
-    if(s2){s2.textContent='—';s2.style.color='#6b7280';}
-    return;
-  }
+  if(total===0){ var s2=g('WordWriteStatus'); if(s2){s2.textContent='—';s2.style.color='#6b7280';} return; }
 
   /* ── NOTE → Word Comment ── */
   noteItems.forEach(function(item){
-    var commentText = item.suggested_revision
-      ? item.suggested_revision.replace(/^\[|\]$/g,'').trim()
-      : (item.issue||'');
+    var commentText = item.suggested_revision ? item.suggested_revision.replace(/^\[|\]$/g,'').trim() : (item.issue||'');
     if(!commentText){written++;updateStatus();return;}
+    var searchSnip = safeSnip(item.original, 50);
+    if(!searchSnip){failed++;updateStatus();return;}
 
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
       return context.sync().then(function(){
         var scope = findClauseScope(paras.items, item.clause_ref||'', item.original);
-        if(!scope){failed++;updateStatus();return;}
-        var origSnip = safeSnip(item.original, 25).toLowerCase();
-        var targetPara = null;
-        for(var i=scope.scopeStart; i<=scope.scopeEnd; i++){
-          if(safeSnip(paras.items[i].text,300).toLowerCase().indexOf(origSnip)>=0){
-            targetPara = paras.items[i]; break;
-          }
-        }
-        if(!targetPara){failed++;updateStatus();return;}
-        targetPara.getRange().insertComment(commentText);
-        return context.sync().then(function(){written++;updateStatus();});
+        var si = scope ? scope.scopeStart : 0;
+        var ei = scope ? scope.scopeEnd : paras.items.length-1;
+        var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+        var results = scopedRange.search(searchSnip, {matchCase:false, matchWholeWord:false});
+        results.load('items');
+        return context.sync().then(function(){
+          if(!results.items.length){failed++;updateStatus();return;}
+          results.items[0].insertComment(commentText);
+          return context.sync().then(function(){written++;updateStatus();});
+        });
       });
     }).catch(function(e){console.log('Comment error:',e.message||e);failed++;updateStatus();});
   });
 
-  /* ── REVISE → Track Changes with scoped search ── */
+  /* ── REVISE → Track Changes ── */
   reviseItems.forEach(function(item){
     var segs = parseRedlineSegments(item.suggested_revision||'');
     var hasChanges = segs.some(function(s){return s.type==='add'||s.type==='del';});
@@ -2508,10 +2479,8 @@ function writeReviewToWord(){
       var paras = context.document.body.paragraphs;
       paras.load('items');
       return context.sync().then(function(){
-
         var scope = findClauseScope(paras.items, item.clause_ref||'', item.original);
         if(!scope){failed++;updateStatus();return;}
-
         var si = scope.scopeStart, ei = scope.scopeEnd;
 
         function processSegs(segList, idx){
@@ -2523,12 +2492,12 @@ function writeReviewToWord(){
             var delSnip = safeSnip(seg.text, 50);
             if(!delSnip) return processSegs(segList,idx+1);
             return Word.run(function(ctx){
-              ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
-              var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-              var results = scopedRange.search(delSnip,{matchCase:false,matchWholeWord:false});
-              results.load('items');
+              ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+              var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+              var res = sr.search(delSnip,{matchCase:false,matchWholeWord:false});
+              res.load('items');
               return ctx.sync().then(function(){
-                if(results.items.length>0) results.items[0].insertText('','Replace');
+                if(res.items.length>0) res.items[0].insertText('','Replace');
                 return ctx.sync();
               });
             }).then(function(){return processSegs(segList,idx+1);})
@@ -2548,12 +2517,12 @@ function writeReviewToWord(){
             if(!anchor) return processSegs(segList,idx+1);
             var addText=seg.text;
             return Word.run(function(ctx){
-              ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
-              var scopedRange2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-              var results = scopedRange2.search(anchor,{matchCase:false,matchWholeWord:false});
-              results.load('items');
+              ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+              var sr2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+              var res2 = sr2.search(anchor,{matchCase:false,matchWholeWord:false});
+              res2.load('items');
               return ctx.sync().then(function(){
-                if(results.items.length>0) results.items[0].getRange('End').insertText(addText,'After');
+                if(res2.items.length>0) res2.items[0].getRange('End').insertText(addText,'After');
                 return ctx.sync();
               });
             }).then(function(){return processSegs(segList,idx+1);})
@@ -3636,70 +3605,82 @@ function acceptP2AiEdit(){
   var quote = g('P2AiQuote');
   var originalText = quote ? quote.value.trim() : '';
   if(!_p2AiSuggestion || !originalText){ toast('缺少原文或修订内容'); return; }
+
   var segs = parseRedlineSegments(_p2AiSuggestion);
-  var cleaned = originalText.replace(/\s+/g,' ').trim();
-  var startSnip = cleaned.slice(0,30).toLowerCase();
-  var endSnip = cleaned.slice(-30).toLowerCase();
-  if(D.wordParas && D.wordParas.length){
-    var si=-1, ei=-1;
-    for(var i=0;i<D.wordParas.length;i++){
-      var pl=D.wordParas[i].toLowerCase();
-      if(si===-1&&pl.indexOf(startSnip)>=0) si=i;
-      if(pl.indexOf(endSnip)>=0) ei=i;
-    }
-    if(si>=0){
-      if(ei<si) ei=si;
-      function applyP2Segs(segList,idx){
+  var hasChanges = segs.some(function(s){ return s.type==='add'||s.type==='del'; });
+  if(!hasChanges){ toast('AI回复中没有找到修订标记'); return; }
+
+  /* Use safeSnip + scopedRange.search for reliable matching */
+  Word.run(function(context){
+    context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+    var paras = context.document.body.paragraphs;
+    paras.load('items');
+    return context.sync().then(function(){
+      /* Find scope — no clause_ref here so use original text directly */
+      var scope = findClauseScope(paras.items, '', originalText);
+      var si = scope ? scope.scopeStart : 0;
+      var ei = scope ? scope.scopeEnd : paras.items.length-1;
+
+      function processSegs(segList, idx){
         if(idx>=segList.length) return Promise.resolve();
         var seg=segList[idx];
-        if(seg.type==='keep') return applyP2Segs(segList,idx+1);
+        if(seg.type==='keep') return processSegs(segList,idx+1);
+
         if(seg.type==='del'){
-          var delText=seg.text.replace(/\s+/g,' ').trim();
-          if(!delText) return applyP2Segs(segList,idx+1);
+          var delSnip = safeSnip(seg.text, 50);
+          if(!delSnip) return processSegs(segList,idx+1);
           return Word.run(function(ctx){
-            ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
-            var r=ctx.document.body.search(delText,{matchCase:false,matchWholeWord:false});
-            r.load('items');
+            ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+            var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+            var res = sr.search(delSnip,{matchCase:false,matchWholeWord:false});
+            res.load('items');
             return ctx.sync().then(function(){
-              if(r.items.length) r.items[0].insertText('','Replace');
+              if(res.items.length>0) res.items[0].insertText('','Replace');
               return ctx.sync();
             });
-          }).then(function(){ return applyP2Segs(segList,idx+1); })
-           .catch(function(){ return applyP2Segs(segList,idx+1); });
+          }).then(function(){return processSegs(segList,idx+1);})
+           .catch(function(){return processSegs(segList,idx+1);});
         }
+
         if(seg.type==='add'){
           var anchor='';
           for(var k=idx-1;k>=0;k--){
+            if(segList[k].type==='del'&&segList[k].text.trim().length>3){
+              anchor=safeSnip(segList[k].text,30).slice(-20); break;
+            }
             if(segList[k].type==='keep'&&segList[k].text.trim().length>5){
-              anchor=segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
+              anchor=safeSnip(segList[k].text,60).slice(-20); break;
             }
           }
-          if(!anchor) return applyP2Segs(segList,idx+1);
+          if(!anchor) return processSegs(segList,idx+1);
           var addText=seg.text;
           return Word.run(function(ctx){
-            ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
-            var r=ctx.document.body.search(anchor,{matchCase:false,matchWholeWord:false});
-            r.load('items');
+            ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+            var sr2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+            var res2 = sr2.search(anchor,{matchCase:false,matchWholeWord:false});
+            res2.load('items');
             return ctx.sync().then(function(){
-              if(r.items.length) r.items[0].getRange('End').insertText(addText,'After');
+              if(res2.items.length>0) res2.items[0].getRange('End').insertText(addText,'After');
               return ctx.sync();
             });
-          }).then(function(){ return applyP2Segs(segList,idx+1); })
-           .catch(function(){ return applyP2Segs(segList,idx+1); });
+          }).then(function(){return processSegs(segList,idx+1);})
+           .catch(function(){return processSegs(segList,idx+1);});
         }
-        return applyP2Segs(segList,idx+1);
+        return processSegs(segList,idx+1);
       }
-      applyP2Segs(segs,0).then(function(){
-        Word.run(function(ctx){ ctx.document.changeTrackingMode=Word.ChangeTrackingMode.off; return ctx.sync(); });
-        toast('修订已写入 Word');
-        g('P2AiResult').style.display='none';
-        g('P2AiActions').style.display='none';
-        _p2AiSuggestion='';
-      });
-      return;
-    }
-  }
-  toast('未能在文档中定位原文');
+
+      return processSegs(segs, 0);
+    }).then(function(){
+      return Word.run(function(ctx){ ctx.document.changeTrackingMode=Word.ChangeTrackingMode.off; return ctx.sync(); });
+    }).then(function(){
+      toast('修订已写入 Word');
+      g('P2AiResult').style.display='none';
+      g('P2AiActions').style.display='none';
+      _p2AiSuggestion='';
+    });
+  }).catch(function(e){
+    toast('写入失败：'+(e.message||String(e)));
+  });
 }
 
 /* Start monitoring when P1 is active */

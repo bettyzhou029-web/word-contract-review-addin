@@ -2507,17 +2507,13 @@ function writeReviewToWord(){
 
   if(total===0){ var s2=g('WordWriteStatus'); if(s2){s2.textContent='—';s2.style.color='#6b7280';} return; }
 
-  /* Normalize special chars for search */
-  function normSearch(s){
-    return (s||'').replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'")
-      .replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
-  }
+  function normS(s){ return (s||'').replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'").replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim(); }
 
   /* ── NOTE → Word Comment ── */
   noteItems.forEach(function(item){
     var commentText = item.suggested_revision ? item.suggested_revision.replace(/^\[|\]$/g,'').trim() : (item.issue||'');
     if(!commentText){written++;updateStatus();return;}
-    var searchSnip = normSearch(item.original).slice(0,200);
+    var searchSnip = normS(item.original).slice(0,200);
     if(!searchSnip){failed++;updateStatus();return;}
 
     Word.run(function(context){
@@ -2539,7 +2535,7 @@ function writeReviewToWord(){
     }).catch(function(e){console.log('Comment:',e.message||e);failed++;updateStatus();});
   });
 
-  /* ── REVISE → Track Changes in ONE Word.run per item ── */
+  /* ── REVISE → Track Changes using context-aware search ── */
   reviseItems.forEach(function(item){
     var segs = parseRedlineSegments(item.suggested_revision||'');
     var hasChanges = segs.some(function(s){return s.type==='add'||s.type==='del';});
@@ -2554,44 +2550,23 @@ function writeReviewToWord(){
         if(!scope){failed++;updateStatus();return;}
         var si = scope.scopeStart, ei = scope.scopeEnd;
 
-        /* Pre-load all searches in one sync */
-        var delSearches = segs.map(function(seg){
-          if(seg.type!=='del') return null;
-          /* Use full del text normalized, up to 200 chars */
-          var snip = normSearch(seg.text).slice(0,200);
-          if(!snip) return null;
-          var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-          var res = sr.search(snip, {matchCase:false, matchWholeWord:false});
-          res.load('items');
-          return {snip:snip, res:res};
-        }).filter(Boolean);
+        /* Build context-aware searches:
+           For each del/add pair, search for (keep_before + del) and replace with (keep_before + add)
+           This prevents short del/add words from matching wrong locations */
+        var operations = buildContextOps(segs, normS);
 
-        var addSearches = segs.map(function(seg, idx){
-          if(seg.type!=='add') return null;
-          var anchor = '';
-          for(var k=idx-1;k>=0;k--){
-            var srcText = '';
-            if(segs[k].type==='keep'&&segs[k].text.trim().length>10) srcText = segs[k].text;
-            else if(segs[k].type==='del'&&segs[k].text.trim().length>5) srcText = segs[k].text;
-            if(srcText){
-              var norm2 = normSearch(srcText);
-              anchor = norm2.length > 40 ? norm2.slice(-40) : norm2;
-              break;
-            }
-          }
-          if(!anchor) return null;
-          var sr2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-          var res2 = sr2.search(anchor, {matchCase:false, matchWholeWord:false});
-          res2.load('items');
-          return {addText:seg.text, anchor:anchor, res:res2};
-        }).filter(Boolean);
+        var searches = operations.map(function(op){
+          var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+          var res = sr.search(op.searchFor, {matchCase:false, matchWholeWord:false});
+          res.load('items');
+          return {op:op, res:res};
+        });
 
         return context.sync().then(function(){
-          delSearches.forEach(function(d){
-            if(d.res.items.length>0) d.res.items[0].insertText('','Replace');
-          });
-          addSearches.forEach(function(a){
-            if(a.res.items.length>0) a.res.items[0].getRange('End').insertText(a.addText,'After');
+          searches.forEach(function(s){
+            if(s.res.items.length > 0){
+              s.res.items[0].insertText(s.op.replaceWith, 'Replace');
+            }
           });
           return context.sync();
         });
@@ -2601,6 +2576,55 @@ function writeReviewToWord(){
       }).then(function(){written++;updateStatus();});
     }).catch(function(e){console.log('Revise:',e.message||e);failed++;updateStatus();});
   });
+}
+
+/* Build context-aware search/replace operations from segments.
+   Key insight: search for (keep_context + del_text) and replace with (keep_context + add_text)
+   This ensures short words like "Reseller" are found in the right context */
+function buildContextOps(segs, normS){
+  var ops = [];
+  var i = 0;
+  while(i < segs.length){
+    var seg = segs[i];
+    if(seg.type === 'del'){
+      /* Find matching add if immediately follows */
+      var addSeg = (i+1 < segs.length && segs[i+1].type === 'add') ? segs[i+1] : null;
+      /* Find keep context before (up to 50 chars) */
+      var keepBefore = '';
+      for(var k=i-1; k>=0; k--){
+        if(segs[k].type === 'keep' && segs[k].text.trim().length > 3){
+          var kb = normS(segs[k].text);
+          keepBefore = kb.slice(-50);
+          break;
+        }
+      }
+      var delText = normS(seg.text);
+      var addText = addSeg ? addSeg.text : '';
+      var searchFor = keepBefore + delText;
+      var replaceWith = keepBefore + addText;
+      if(searchFor.trim().length > 0){
+        ops.push({searchFor: searchFor, replaceWith: replaceWith});
+      }
+      i += addSeg ? 2 : 1;
+    } else if(seg.type === 'add'){
+      /* Standalone add (no preceding del) - insert after keep context */
+      var keepBefore2 = '';
+      for(var k2=i-1; k2>=0; k2--){
+        if(segs[k2].type === 'keep' && segs[k2].text.trim().length > 3){
+          var kb2 = normS(segs[k2].text);
+          keepBefore2 = kb2.slice(-50);
+          break;
+        }
+      }
+      if(keepBefore2){
+        ops.push({searchFor: keepBefore2, replaceWith: keepBefore2 + seg.text});
+      }
+      i++;
+    } else {
+      i++;
+    }
+  }
+  return ops;
 }
 /* ══════════════════════════════════════════
    REVIEW-MODE HIGHLIGHT COLORS
@@ -3679,6 +3703,11 @@ function acceptP2AiEdit(){
   var hasChanges = segs.some(function(s){ return s.type==='add'||s.type==='del'; });
   if(!hasChanges){ toast('AI回复中没有找到修订标记'); return; }
 
+  function normS(s){ return (s||'').replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'").replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim(); }
+
+  var ops = buildContextOps(segs, normS);
+  if(!ops.length){ toast('无法构建修订操作'); return; }
+
   Word.run(function(context){
     context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
     var paras = context.document.body.paragraphs;
@@ -3688,46 +3717,22 @@ function acceptP2AiEdit(){
       var si = scope ? scope.scopeStart : 0;
       var ei = scope ? scope.scopeEnd : paras.items.length-1;
 
-      function normS(s){ return (s||'').replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'").replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim(); }
-      var delSearches = segs.map(function(seg){
-        if(seg.type!=='del') return null;
-        var snip = normS(seg.text).slice(0,150);
-        if(!snip) return null;
+      var searches = ops.map(function(op){
         var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-        var res = sr.search(snip, {matchCase:false, matchWholeWord:false});
+        var res = sr.search(op.searchFor, {matchCase:false, matchWholeWord:false});
         res.load('items');
-        return {res:res};
-      }).filter(Boolean);
-
-      var addSearches = segs.map(function(seg, idx){
-        if(seg.type!=='add') return null;
-        /* Build anchor: use 30 chars from MIDDLE of keep/del segment for uniqueness */
-        var anchor = '';
-        for(var k=idx-1;k>=0;k--){
-          var srcText = '';
-          if(segs[k].type==='keep'&&segs[k].text.trim().length>10) srcText = segs[k].text;
-          else if(segs[k].type==='del'&&segs[k].text.trim().length>5) srcText = segs[k].text;
-          if(srcText){
-            var norm = normS(srcText);
-            /* Take last 40 chars — more unique than last 20 */
-            anchor = norm.length > 40 ? norm.slice(-40) : norm;
-            break;
-          }
-        }
-        if(!anchor) return null;
-        var sr2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-        var res2 = sr2.search(anchor, {matchCase:false, matchWholeWord:false});
-        res2.load('items');
-        return {addText:seg.text, res:res2};
-      }).filter(Boolean);
+        return {op:op, res:res};
+      });
 
       return context.sync().then(function(){
-        delSearches.forEach(function(d){
-          if(d.res.items.length>0) d.res.items[0].insertText('','Replace');
+        var anyFound = false;
+        searches.forEach(function(s){
+          if(s.res.items.length > 0){
+            s.res.items[0].insertText(s.op.replaceWith, 'Replace');
+            anyFound = true;
+          }
         });
-        addSearches.forEach(function(a){
-          if(a.res.items.length>0) a.res.items[0].getRange('End').insertText(a.addText,'After');
-        });
+        if(!anyFound){ toast('未能在文档中定位原文'); return Promise.resolve(); }
         return context.sync();
       });
     }).then(function(){

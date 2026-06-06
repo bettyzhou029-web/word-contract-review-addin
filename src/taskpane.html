@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+=<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -805,7 +805,10 @@ function goPage(n){
   });
 
   if(n===2) setTimeout(function(){
-    clearAllWordHighlights();
+    /* First clear all highlights, THEN write Track Changes */
+    clearAllWordHighlights().then(function(){
+      setTimeout(writeReviewToWord, 300);
+    });
     applyReviewHighlightsWord();
   }, 200);
 }
@@ -1125,8 +1128,17 @@ function highlightAllClausesInWord(){
   D.clauses.forEach(function(c){
     if(!c.original) return;
     var color = colorMap[c.level] || 'Yellow';
-    var searchSnip = safeSnip(c.original, 60);
-    if(!searchSnip) return;
+    /* Try full original text first, fallback to 60 chars */
+    var fullSnip = c.original.replace(/[\u201c\u201d\u2018\u2019\u2013\u2014\u00a0]/g, function(ch){
+      if(ch==='\u201c'||ch==='\u201d') return '"';
+      if(ch==='\u2018'||ch==='\u2019') return "'";
+      if(ch==='\u2013'||ch==='\u2014') return '-';
+      if(ch==='\u00a0') return ' ';
+      return ch;
+    }).replace(/\s+/g,' ').trim();
+    var shortSnip = safeSnip(c.original, 60);
+    if(!shortSnip) return;
+
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
@@ -1135,12 +1147,25 @@ function highlightAllClausesInWord(){
         var si = scope ? scope.scopeStart : 0;
         var ei = scope ? scope.scopeEnd : paras.items.length-1;
         var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-        var results = scopedRange.search(searchSnip, {matchCase:false, matchWholeWord:false});
-        results.load('items');
-        return context.sync().then(function(){
-          if(!results.items.length) return;
-          results.items[0].font.highlightColor = color;
-          return context.sync();
+
+        /* Try full text search first */
+        var trySearch = function(snip){
+          var results = scopedRange.search(snip, {matchCase:false, matchWholeWord:false});
+          results.load('items');
+          return context.sync().then(function(){
+            if(results.items.length > 0){
+              results.items[0].font.highlightColor = color;
+              return context.sync();
+            }
+            return null;
+          });
+        };
+
+        return trySearch(fullSnip.slice(0, 255)).then(function(res){
+          if(res === null){
+            /* Fallback to short snip */
+            return trySearch(shortSnip);
+          }
         });
       });
     }).catch(function(){});
@@ -2407,8 +2432,6 @@ function parseAndRenderTable(raw, requestObj){
   renderReviewTable(reviewTable);
   goPage(2);
   saveHistRecord();
-  /* Auto-write to Word: notes as comments, revisions as Track Changes */
-  setTimeout(writeReviewToWord, 600);
 }
 
 /* ══════════════════════════════════════════
@@ -2463,11 +2486,17 @@ function writeReviewToWord(){
 
   if(total===0){ var s2=g('WordWriteStatus'); if(s2){s2.textContent='—';s2.style.color='#6b7280';} return; }
 
-  /* ── NOTE → Word Comment (one Word.run per item) ── */
+  /* Normalize special chars for search */
+  function normSearch(s){
+    return (s||'').replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'")
+      .replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+  }
+
+  /* ── NOTE → Word Comment ── */
   noteItems.forEach(function(item){
     var commentText = item.suggested_revision ? item.suggested_revision.replace(/^\[|\]$/g,'').trim() : (item.issue||'');
     if(!commentText){written++;updateStatus();return;}
-    var searchSnip = safeSnip(item.original, 50);
+    var searchSnip = normSearch(item.original).slice(0,100);
     if(!searchSnip){failed++;updateStatus();return;}
 
     Word.run(function(context){
@@ -2504,47 +2533,43 @@ function writeReviewToWord(){
         if(!scope){failed++;updateStatus();return;}
         var si = scope.scopeStart, ei = scope.scopeEnd;
 
-        /* Load all search results in one sync for all del/add segments */
-        var delSegs = segs.filter(function(s){return s.type==='del';});
-        var addSegs = segs.filter(function(s){return s.type==='add';});
-
-        /* Search for all del snippets at once */
-        var delSearches = delSegs.map(function(s){
-          var snip = safeSnip(s.text, 50);
+        /* Pre-load all searches in one sync */
+        var delSearches = segs.map(function(seg){
+          if(seg.type!=='del') return null;
+          /* Use full del text normalized, up to 200 chars */
+          var snip = normSearch(seg.text).slice(0,200);
           if(!snip) return null;
           var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
           var res = sr.search(snip, {matchCase:false, matchWholeWord:false});
           res.load('items');
-          return {seg:s, res:res};
+          return {snip:snip, res:res};
         }).filter(Boolean);
 
-        /* Search for all add anchors at once */
         var addSearches = segs.map(function(seg, idx){
-          if(seg.type !== 'add') return null;
+          if(seg.type!=='add') return null;
+          /* Anchor: prefer keep segment before, fallback to del segment */
           var anchor = '';
           for(var k=idx-1;k>=0;k--){
-            if(segs[k].type==='del'&&segs[k].text.trim().length>3){
-              anchor=safeSnip(segs[k].text,30).slice(-20); break;
-            }
             if(segs[k].type==='keep'&&segs[k].text.trim().length>5){
-              anchor=safeSnip(segs[k].text,60).slice(-20); break;
+              anchor=normSearch(segs[k].text).slice(-30); break;
+            }
+            if(segs[k].type==='del'&&segs[k].text.trim().length>3){
+              anchor=normSearch(segs[k].text).slice(-30); break;
             }
           }
           if(!anchor) return null;
           var sr2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
           var res2 = sr2.search(anchor, {matchCase:false, matchWholeWord:false});
           res2.load('items');
-          return {seg:seg, anchor:anchor, addText:seg.text, res:res2};
+          return {addText:seg.text, anchor:anchor, res:res2};
         }).filter(Boolean);
 
         return context.sync().then(function(){
-          /* Apply all deletions */
           delSearches.forEach(function(d){
-            if(d.res.items.length > 0) d.res.items[0].insertText('', 'Replace');
+            if(d.res.items.length>0) d.res.items[0].insertText('','Replace');
           });
-          /* Apply all insertions */
           addSearches.forEach(function(a){
-            if(a.res.items.length > 0) a.res.items[0].getRange('End').insertText(a.addText, 'After');
+            if(a.res.items.length>0) a.res.items[0].getRange('End').insertText(a.addText,'After');
           });
           return context.sync();
         });
@@ -2567,8 +2592,9 @@ function applyReviewHighlights(){
 }
 
 function clearAllWordHighlights(){
-  if(typeof Word === 'undefined') return;
-  Word.run(function(context){
+  if(typeof Word === 'undefined') return Promise.resolve();
+  return Word.run(function(context){
+    context.document.changeTrackingMode = Word.ChangeTrackingMode.off;
     var paras = context.document.body.paragraphs;
     paras.load('items');
     return context.sync().then(function(){
@@ -2577,7 +2603,7 @@ function clearAllWordHighlights(){
       });
       return context.sync();
     });
-  }).catch(function(){});
+  }).catch(function(){ return Promise.resolve(); });
 }
 
 function applyReviewHighlightsWord(){

@@ -559,6 +559,20 @@ main{display:flex;flex-direction:column;overflow:hidden;}
             <div class="risk-annot-container" id="ReviewAnnotContainer"></div>
           </div>
           <div class="scan-footer" style="flex-shrink:0;">
+            <!-- AI Interaction Panel -->
+            <div style="padding:8px 10px;border-top:1px solid var(--border);background:#f8fafc;">
+              <div style="font-size:9px;font-family:var(--mono);color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">AI Assistant</div>
+              <textarea id="P2AiQuote" placeholder="粘贴原文片段..." style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;resize:none;height:48px;outline:none;font-family:var(--sans);line-height:1.5;background:#fff;margin-bottom:4px;"></textarea>
+              <div style="display:flex;gap:6px;margin-bottom:4px;">
+                <input id="P2AiInstr" type="text" placeholder="输入指令（修订/问题均可）..." style="flex:1;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;outline:none;" onkeydown="if(event.key==='Enter')sendP2Ai()"/>
+                <button onclick="sendP2Ai()" id="P2AiBtn" style="font-size:11px;padding:5px 10px;background:#0f172a;color:#fff;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;">AI →</button>
+              </div>
+              <div id="P2AiResult" style="display:none;font-size:11px;line-height:1.6;background:#fff;border:1px solid var(--border);border-radius:4px;padding:6px 8px;max-height:80px;overflow-y:auto;margin-bottom:4px;"></div>
+              <div id="P2AiActions" style="display:none;gap:6px;">
+                <button onclick="acceptP2AiEdit()" style="font-size:11px;padding:4px 10px;background:#16a34a;color:#fff;border:none;border-radius:4px;cursor:pointer;">✓ 写入修订</button>
+                <button onclick="g('P2AiResult').style.display='none';g('P2AiActions').style.display='none';" style="font-size:11px;padding:4px 10px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;color:#64748b;">✕ 关闭</button>
+              </div>
+            </div>
             <div class="scan-footer-row">
               <button class="btn-sec" onclick="goPage(1)" style="font-size:11px;padding:6px 10px;">← Back</button>
               <div style="display:flex;gap:8px;">
@@ -771,7 +785,11 @@ function goPage(n){
     el.classList.toggle('done', i<n-1);
   });
 
-  if(n===2) setTimeout(applyReviewHighlightsWord, 200);
+  if(n===2) setTimeout(function(){
+    /* Clear P1 highlights before writing P2 Track Changes */
+    clearAllWordHighlights();
+    applyReviewHighlightsWord();
+  }, 200);
 }
 
 /* ══════════════════════════════════════════
@@ -2449,6 +2467,20 @@ function applyReviewHighlights(){
   /* Legacy no-op */
 }
 
+function clearAllWordHighlights(){
+  if(typeof Word === 'undefined') return;
+  Word.run(function(context){
+    var paras = context.document.body.paragraphs;
+    paras.load('items');
+    return context.sync().then(function(){
+      paras.items.forEach(function(p){
+        p.font.highlightColor = 'NoColor';
+      });
+      return context.sync();
+    });
+  }).catch(function(){});
+}
+
 function applyReviewHighlightsWord(){
   /* P2: no batch color highlight — Word Track Changes and comments handle the visual */
   /* Individual card clicks will select/jump via reviewSelectCard */
@@ -3480,6 +3512,127 @@ function acceptAiEdit(){
   }
   toast('修订已写入 Word');
   clearAiEditPanel();
+}
+
+/* ══════════════════════════════════════════
+   P2 AI INTERACTION PANEL
+══════════════════════════════════════════ */
+var _p2AiSuggestion = '';
+
+function sendP2Ai(){
+  var quote = g('P2AiQuote'); var instr = g('P2AiInstr');
+  var quoteText = quote ? quote.value.trim() : '';
+  var instrText = instr ? instr.value.trim() : '';
+  if(!instrText){ toast('请输入指令'); return; }
+
+  var btn = g('P2AiBtn');
+  var result = g('P2AiResult');
+  var actions = g('P2AiActions');
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  if(result){ result.style.display='block'; result.textContent='Thinking…'; }
+  if(actions) actions.style.display='none';
+
+  var k = key();
+  var ct = g('CT').value, pr = g('PR').value.trim()||'Party A', ol = g('OL').value;
+  var fullMsg = quoteText
+    ? '原文片段：\n'+quoteText+'\n\n指令：'+instrText+'\n\n如果是修订请用[+新增+]和[-删除-]标注变化，如果是问题直接回答即可。'
+    : instrText;
+
+  var payload = {
+    inputs:{contract_type:ct, party_role:pr, output_language:ol, additional_instructions:''},
+    query: fullMsg, response_mode:'blocking', user:D.uid
+  };
+  if(D.convId) payload.conversation_id = D.convId;
+
+  var x = new XMLHttpRequest();
+  x.open('POST', base()+'/chat-messages');
+  x.setRequestHeader('Authorization','Bearer '+k);
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload = function(){
+    if(btn){ btn.disabled=false; btn.textContent='AI →'; }
+    if(x.status!==200){ if(result) result.textContent='Error: '+x.status; return; }
+    var data = JSON.parse(x.responseText);
+    if(!D.convId && data.conversation_id){ D.convId=data.conversation_id; lsSet('cr_conv_id',D.convId); }
+    _p2AiSuggestion = data.answer||'';
+    if(result){ result.style.display='block'; result.innerHTML=renderMd(_p2AiSuggestion); }
+    var hasRedline = _p2AiSuggestion.indexOf('[+')>=0 || _p2AiSuggestion.indexOf('[-')>=0;
+    if(actions) actions.style.display = hasRedline ? 'flex' : 'none';
+  };
+  x.onerror = function(){
+    if(btn){ btn.disabled=false; btn.textContent='AI →'; }
+    if(result) result.textContent='Network error';
+  };
+  x.send(JSON.stringify(payload));
+}
+
+function acceptP2AiEdit(){
+  var quote = g('P2AiQuote');
+  var originalText = quote ? quote.value.trim() : '';
+  if(!_p2AiSuggestion || !originalText){ toast('缺少原文或修订内容'); return; }
+  var segs = parseRedlineSegments(_p2AiSuggestion);
+  var cleaned = originalText.replace(/\s+/g,' ').trim();
+  var startSnip = cleaned.slice(0,30).toLowerCase();
+  var endSnip = cleaned.slice(-30).toLowerCase();
+  if(D.wordParas && D.wordParas.length){
+    var si=-1, ei=-1;
+    for(var i=0;i<D.wordParas.length;i++){
+      var pl=D.wordParas[i].toLowerCase();
+      if(si===-1&&pl.indexOf(startSnip)>=0) si=i;
+      if(pl.indexOf(endSnip)>=0) ei=i;
+    }
+    if(si>=0){
+      if(ei<si) ei=si;
+      function applyP2Segs(segList,idx){
+        if(idx>=segList.length) return Promise.resolve();
+        var seg=segList[idx];
+        if(seg.type==='keep') return applyP2Segs(segList,idx+1);
+        if(seg.type==='del'){
+          var delText=seg.text.replace(/\s+/g,' ').trim();
+          if(!delText) return applyP2Segs(segList,idx+1);
+          return Word.run(function(ctx){
+            ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
+            var r=ctx.document.body.search(delText,{matchCase:false,matchWholeWord:false});
+            r.load('items');
+            return ctx.sync().then(function(){
+              if(r.items.length) r.items[0].insertText('','Replace');
+              return ctx.sync();
+            });
+          }).then(function(){ return applyP2Segs(segList,idx+1); })
+           .catch(function(){ return applyP2Segs(segList,idx+1); });
+        }
+        if(seg.type==='add'){
+          var anchor='';
+          for(var k=idx-1;k>=0;k--){
+            if(segList[k].type==='keep'&&segList[k].text.trim().length>5){
+              anchor=segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
+            }
+          }
+          if(!anchor) return applyP2Segs(segList,idx+1);
+          var addText=seg.text;
+          return Word.run(function(ctx){
+            ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
+            var r=ctx.document.body.search(anchor,{matchCase:false,matchWholeWord:false});
+            r.load('items');
+            return ctx.sync().then(function(){
+              if(r.items.length) r.items[0].getRange('End').insertText(addText,'After');
+              return ctx.sync();
+            });
+          }).then(function(){ return applyP2Segs(segList,idx+1); })
+           .catch(function(){ return applyP2Segs(segList,idx+1); });
+        }
+        return applyP2Segs(segList,idx+1);
+      }
+      applyP2Segs(segs,0).then(function(){
+        Word.run(function(ctx){ ctx.document.changeTrackingMode=Word.ChangeTrackingMode.off; return ctx.sync(); });
+        toast('修订已写入 Word');
+        g('P2AiResult').style.display='none';
+        g('P2AiActions').style.display='none';
+        _p2AiSuggestion='';
+      });
+      return;
+    }
+  }
+  toast('未能在文档中定位原文');
 }
 
 /* Start monitoring when P1 is active */

@@ -1,4 +1,4 @@
-=<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -805,9 +805,9 @@ function goPage(n){
   });
 
   if(n===2) setTimeout(function(){
-    /* First clear all highlights, THEN write Track Changes */
+    D._p2entered = true; /* Stop any pending P1 highlight operations */
     clearAllWordHighlights().then(function(){
-      setTimeout(writeReviewToWord, 300);
+      if(D._p2entered) setTimeout(writeReviewToWord, 200);
     });
     applyReviewHighlightsWord();
   }, 200);
@@ -1124,6 +1124,7 @@ function renderScan(){
 
 function highlightAllClausesInWord(){
   if(typeof Word === 'undefined') return;
+  D._p2entered = false; /* Reset flag */
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise'};
   D.clauses.forEach(function(c){
     if(!c.original) return;
@@ -1162,8 +1163,8 @@ function highlightAllClausesInWord(){
         };
 
         return trySearch(fullSnip.slice(0, 255)).then(function(res){
+          if(D._p2entered) return; /* P2 entered, skip remaining highlights */
           if(res === null){
-            /* Fallback to short snip */
             return trySearch(shortSnip);
           }
         });
@@ -1809,27 +1810,42 @@ function selectRisk(idx){
   if(clause && clause.original){
     var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise'};
     var color = colorMap[clause.level] || 'Yellow';
-    var searchSnip = safeSnip(clause.original, 60);
-    if(searchSnip && typeof Word !== 'undefined'){
-      Word.run(function(context){
-        var paras = context.document.body.paragraphs;
-        paras.load('items');
+    var fullSnip = clause.original.replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'")
+      .replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+    var searchSnip = fullSnip.slice(0, 255);
+    var fallbackSnip = safeSnip(clause.original, 60);
+    if(!fallbackSnip) return;
+    if(typeof Word === 'undefined') return;
+    Word.run(function(context){
+      var paras = context.document.body.paragraphs;
+      paras.load('items');
+      return context.sync().then(function(){
+        var scope = findClauseScope(paras.items, clause.clause_ref||'', clause.original);
+        var si = scope ? scope.scopeStart : 0;
+        var ei = scope ? scope.scopeEnd : paras.items.length-1;
+        var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+        /* Try full text first, then fallback */
+        var r1 = scopedRange.search(searchSnip, {matchCase:false, matchWholeWord:false});
+        r1.load('items');
         return context.sync().then(function(){
-          var scope = findClauseScope(paras.items, clause.clause_ref||'', clause.original);
-          var si = scope ? scope.scopeStart : 0;
-          var ei = scope ? scope.scopeEnd : paras.items.length-1;
-          var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-          var results = scopedRange.search(searchSnip, {matchCase:false, matchWholeWord:false});
-          results.load('items');
-          return context.sync().then(function(){
-            if(!results.items.length) return;
-            results.items[0].font.highlightColor = color;
-            results.items[0].select();
+          if(r1.items.length > 0){
+            r1.items[0].font.highlightColor = color;
+            r1.items[0].select();
             return context.sync();
+          }
+          /* Fallback */
+          var r2 = scopedRange.search(fallbackSnip, {matchCase:false, matchWholeWord:false});
+          r2.load('items');
+          return context.sync().then(function(){
+            if(r2.items.length > 0){
+              r2.items[0].font.highlightColor = color;
+              r2.items[0].select();
+              return context.sync();
+            }
           });
         });
-      }).catch(function(){});
-    }
+      });
+    }).catch(function(){});
   }
 
   /* Expand active card, collapse others */
@@ -1866,20 +1882,27 @@ function findClauseScope(paras, clauseRef, originalText){
   var clauseStartIdx = -1;
 
   if(clauseRef && clauseRef !== '缺失' && clauseRef !== ''){
-    var refClean = safeSnip(clauseRef, 60).toLowerCase();
-    /* Try full ref first */
-    for(var i=0; i<paras.length; i++){
-      var pt = safeSnip(paras[i].text, 200).toLowerCase();
-      if(pt.indexOf(refClean) >= 0){ clauseStartIdx = i; break; }
-    }
-    /* Fallback: just numbers e.g. "3.4" or "3" */
-    if(clauseStartIdx < 0){
-      var numPart = clauseRef.replace(/[^0-9.]/g,'').trim();
-      if(numPart){
-        for(var i=0; i<paras.length; i++){
-          var pt2 = paras[i].text;
-          if(pt2.indexOf(numPart) >= 0){ clauseStartIdx = i; break; }
-        }
+    /* Normalize: remove content in parens, normalize dashes */
+    var refClean = clauseRef
+      .replace(/\([^)]*\)/g,'')  /* remove (indemnity clause) etc */
+      .replace(/[\u2013\u2014]/g,'-')  /* normalize em/en dash */
+      .replace(/\s+/g,' ').trim().toLowerCase();
+
+    /* Try progressively shorter versions */
+    var attempts = [refClean];
+    /* Also try just the article number part e.g. "article 3" */
+    var artMatch = refClean.match(/^(article\s*\d+)/i);
+    if(artMatch) attempts.push(artMatch[1].toLowerCase());
+    /* Also try numeric only e.g. "3" or "3.4" */
+    var numPart = clauseRef.replace(/[^0-9.]/g,'').trim();
+    if(numPart) attempts.push(numPart);
+
+    for(var a=0; a<attempts.length && clauseStartIdx<0; a++){
+      var needle = attempts[a];
+      if(needle.length < 2) continue;
+      for(var i=0; i<paras.length; i++){
+        var pt = paras[i].text.replace(/[\u2013\u2014]/g,'-').replace(/\s+/g,' ').trim().toLowerCase();
+        if(pt.indexOf(needle) >= 0){ clauseStartIdx = i; break; }
       }
     }
   }
@@ -1895,8 +1918,6 @@ function findClauseScope(paras, clauseRef, originalText){
   }
 
   if(clauseStartIdx < 0) return null;
-
-  /* Scope: from clause start up to 20 paragraphs */
   var scopeEnd = Math.min(clauseStartIdx + 20, paras.length - 1);
   return { scopeStart: clauseStartIdx, scopeEnd: scopeEnd };
 }
@@ -2496,7 +2517,7 @@ function writeReviewToWord(){
   noteItems.forEach(function(item){
     var commentText = item.suggested_revision ? item.suggested_revision.replace(/^\[|\]$/g,'').trim() : (item.issue||'');
     if(!commentText){written++;updateStatus();return;}
-    var searchSnip = normSearch(item.original).slice(0,100);
+    var searchSnip = normSearch(item.original).slice(0,200);
     if(!searchSnip){failed++;updateStatus();return;}
 
     Word.run(function(context){
@@ -2547,14 +2568,15 @@ function writeReviewToWord(){
 
         var addSearches = segs.map(function(seg, idx){
           if(seg.type!=='add') return null;
-          /* Anchor: prefer keep segment before, fallback to del segment */
           var anchor = '';
           for(var k=idx-1;k>=0;k--){
-            if(segs[k].type==='keep'&&segs[k].text.trim().length>5){
-              anchor=normSearch(segs[k].text).slice(-30); break;
-            }
-            if(segs[k].type==='del'&&segs[k].text.trim().length>3){
-              anchor=normSearch(segs[k].text).slice(-30); break;
+            var srcText = '';
+            if(segs[k].type==='keep'&&segs[k].text.trim().length>10) srcText = segs[k].text;
+            else if(segs[k].type==='del'&&segs[k].text.trim().length>5) srcText = segs[k].text;
+            if(srcText){
+              var norm2 = normSearch(srcText);
+              anchor = norm2.length > 40 ? norm2.slice(-40) : norm2;
+              break;
             }
           }
           if(!anchor) return null;
@@ -3666,10 +3688,10 @@ function acceptP2AiEdit(){
       var si = scope ? scope.scopeStart : 0;
       var ei = scope ? scope.scopeEnd : paras.items.length-1;
 
-      /* Load all searches in one sync */
+      function normS(s){ return (s||'').replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'").replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim(); }
       var delSearches = segs.map(function(seg){
         if(seg.type!=='del') return null;
-        var snip = safeSnip(seg.text, 50);
+        var snip = normS(seg.text).slice(0,150);
         if(!snip) return null;
         var sr = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
         var res = sr.search(snip, {matchCase:false, matchWholeWord:false});
@@ -3679,13 +3701,17 @@ function acceptP2AiEdit(){
 
       var addSearches = segs.map(function(seg, idx){
         if(seg.type!=='add') return null;
+        /* Build anchor: use 30 chars from MIDDLE of keep/del segment for uniqueness */
         var anchor = '';
         for(var k=idx-1;k>=0;k--){
-          if(segs[k].type==='del'&&segs[k].text.trim().length>3){
-            anchor=safeSnip(segs[k].text,30).slice(-20); break;
-          }
-          if(segs[k].type==='keep'&&segs[k].text.trim().length>5){
-            anchor=safeSnip(segs[k].text,60).slice(-20); break;
+          var srcText = '';
+          if(segs[k].type==='keep'&&segs[k].text.trim().length>10) srcText = segs[k].text;
+          else if(segs[k].type==='del'&&segs[k].text.trim().length>5) srcText = segs[k].text;
+          if(srcText){
+            var norm = normS(srcText);
+            /* Take last 40 chars — more unique than last 20 */
+            anchor = norm.length > 40 ? norm.slice(-40) : norm;
+            break;
           }
         }
         if(!anchor) return null;

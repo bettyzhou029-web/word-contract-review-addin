@@ -2420,9 +2420,7 @@ function writeReviewToWord(){
               }
             }
             if(!anchor) return processSegs(segList, idx+1);
-            }
             var addText = seg.text;
-            if(!anchor){ return processSegs(segList, idx+1); }
             return Word.run(function(ctx3){
               ctx3.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
               var results = ctx3.document.body.search(anchor, {matchCase:false, matchWholeWord:false});

@@ -89,13 +89,12 @@ main{display:flex;flex-direction:column;overflow:hidden;}
 .esub{font-family:var(--mono);font-size:10px;}
 
 /* ── Loading ── */
-.ldg{display:none;position:fixed;inset:0;background:#f8f7f4;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:28px;}
+.ldg{display:none;position:fixed;inset:0;background:#f8f7f4;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:20px;}
 .ldg.on{display:flex;}
-.ldg-logo{width:48px;height:48px;position:relative;}
-.ldg-logo svg{animation:ldg-spin 2.4s ease-in-out infinite;}
-@keyframes ldg-spin{0%{transform:rotate(0deg) scale(1);}50%{transform:rotate(180deg) scale(1.1);}100%{transform:rotate(360deg) scale(1);}}
+.ldg-spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#0f172a;border-radius:50%;animation:ldg-rotate 0.8s linear infinite;}
+@keyframes ldg-rotate{to{transform:rotate(360deg);}}
 .ldg-dots{display:flex;gap:6px;align-items:center;}
-.ldg-dot{width:6px;height:6px;border-radius:50%;background:#cbd5e1;animation:ldg-pulse 1.4s ease-in-out infinite;}
+.ldg-dot{width:5px;height:5px;border-radius:50%;background:#cbd5e1;animation:ldg-pulse 1.4s ease-in-out infinite;}
 .ldg-dot:nth-child(1){animation-delay:0s;}
 .ldg-dot:nth-child(2){animation-delay:.2s;}
 .ldg-dot:nth-child(3){animation-delay:.4s;}
@@ -490,20 +489,14 @@ main{display:flex;flex-direction:column;overflow:hidden;}
 
     <!-- Loading -->
     <div class="ldg" id="LD">
-      <div class="ldg-logo">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="48" height="48" rx="12" fill="#0f172a"/>
-          <path d="M14 24h20M14 17h12M14 31h16" stroke="#f1f5f9" stroke-width="2.5" stroke-linecap="round"/>
-          <circle cx="36" cy="17" r="3" fill="#3b82f6"/>
-        </svg>
-      </div>
+      <div class="ldg-spinner"></div>
+      <div class="lmsg" id="LM">Analyzing contract...</div>
       <div class="ldg-dots">
         <div class="ldg-dot"></div>
         <div class="ldg-dot"></div>
         <div class="ldg-dot"></div>
       </div>
-      <div class="lmsg" id="LM">Analyzing contract...</div>
-      <button onclick="cancelRun()" style="padding:7px 18px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;color:#94a3b8;letter-spacing:.04em;">✕ Cancel</button>
+      <button onclick="cancelRun()" style="margin-top:4px;padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;color:#94a3b8;letter-spacing:.04em;">✕ Cancel</button>
     </div>
 
     <!-- Page 1: Scan -->
@@ -809,7 +802,7 @@ function goPage(n){
   });
 
   if(n===2) setTimeout(function(){
-    clearAllWordHighlights();
+    clearAllWordColors();
     applyReviewHighlightsWord();
   }, 200);
 }
@@ -1124,8 +1117,11 @@ function renderScan(){
 }
 
 function highlightAllClausesInWord(){
-  /* Batch highlight removed — Word highlight API unreliable for clear on P2 entry */
-  /* P1 uses select-only on card click */
+  if(typeof Word === 'undefined') return;
+  /* Batch color all clauses by risk level using clause_ref for scoped search */
+  D.clauses.forEach(function(c){
+    if(c.original) colorClauseInWord(c.original, c.clause_ref||'', c.level||'low');
+  });
 }
 
 function renderRiskList(){
@@ -1763,7 +1759,7 @@ function selectRisk(idx){
     ? D.userClauses[parseInt(idx.slice(1))]
     : D.clauses[parseInt(idx)];
   if(clause && clause.original){
-    selectInWordOnly(clause.original);
+    colorClauseInWord(clause.original, clause.clause_ref||'', clause.level||'low');
   }
 
   /* Expand active card, collapse others */
@@ -1784,54 +1780,156 @@ function selectRisk(idx){
   }, 60);
 }
 
-/* ── Word高亮联动 ── */
-function highlightInWord(text, level){
-  if(typeof Word === 'undefined' || !text) return;
-  var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise', user:'Yellow'};
-  var color = colorMap[level] || 'Yellow';
-  var cleaned = text.replace(/\s+/g,' ').trim();
-  if(!cleaned) return;
+/* ══════════════════════════════════════════
+   WORD LOCATE & COLOR UTILITIES
+══════════════════════════════════════════ */
 
-  /* ── Paragraph-based: find start para and end para, highlight the range ── */
-  if(D.wordParas && D.wordParas.length){
-    var startSnip = cleaned.slice(0,30).toLowerCase();
-    var endSnip   = cleaned.slice(-30).toLowerCase();
-    var startIdx = -1, endIdx = -1;
+/* Extract safe ASCII search snippet avoiding special chars */
+function safeSnip(text, len){
+  var clean = (text||'').replace(/[^\x20-\x7e]/g,' ').replace(/\s+/g,' ').trim();
+  return clean.slice(0, len||30);
+}
 
-    for(var i=0; i<D.wordParas.length; i++){
-      var pl = D.wordParas[i].toLowerCase();
-      if(startIdx === -1 && pl.indexOf(startSnip) >= 0) startIdx = i;
-      if(pl.indexOf(endSnip) >= 0) endIdx = i;
+/* Find paragraph index range for a clause_ref + original text.
+   Returns {scopeStart, scopeEnd} or null */
+function findClauseScope(paras, clauseRef, originalText){
+  var clauseStartIdx = -1;
+
+  if(clauseRef && clauseRef !== '缺失' && clauseRef !== ''){
+    var refClean = safeSnip(clauseRef, 60).toLowerCase();
+    /* Try full ref first */
+    for(var i=0; i<paras.length; i++){
+      var pt = safeSnip(paras[i].text, 200).toLowerCase();
+      if(pt.indexOf(refClean) >= 0){ clauseStartIdx = i; break; }
     }
-    if(startIdx >= 0){
-      if(endIdx < startIdx) endIdx = startIdx;
-      Word.run(function(context){
-        var paras = context.document.body.paragraphs;
-        paras.load('items');
-        return context.sync().then(function(){
-          var si = Math.min(startIdx, paras.items.length-1);
-          var ei = Math.min(endIdx,   paras.items.length-1);
-          var merged = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-          merged.font.highlightColor = color;
-          merged.select();
-          return context.sync();
-        });
-      }).catch(function(){});
-      return;
+    /* Fallback: just numbers e.g. "3.4" or "3" */
+    if(clauseStartIdx < 0){
+      var numPart = clauseRef.replace(/[^0-9.]/g,'').trim();
+      if(numPart){
+        for(var i=0; i<paras.length; i++){
+          var pt2 = paras[i].text;
+          if(pt2.indexOf(numPart) >= 0){ clauseStartIdx = i; break; }
+        }
+      }
     }
   }
 
-  /* ── Fallback: text search ── */
+  /* Fallback: find by original text start */
+  if(clauseStartIdx < 0 && originalText){
+    var origSnip = safeSnip(originalText, 25).toLowerCase();
+    for(var i=0; i<paras.length; i++){
+      if(safeSnip(paras[i].text, 300).toLowerCase().indexOf(origSnip) >= 0){
+        clauseStartIdx = i; break;
+      }
+    }
+  }
+
+  if(clauseStartIdx < 0) return null;
+
+  /* Scope: from clause start up to 20 paragraphs */
+  var scopeEnd = Math.min(clauseStartIdx + 20, paras.length - 1);
+  return { scopeStart: clauseStartIdx, scopeEnd: scopeEnd };
+}
+
+/* Color a clause range in Word (P1 visual marker) */
+function colorClauseInWord(original, clauseRef, level){
+  if(typeof Word === 'undefined' || !original) return;
+  var colorMap = {high:'#dc2626', mid:'#ea580c', low:'#2563eb'};
+  var color = colorMap[level] || colorMap.low;
+
   Word.run(function(context){
-    var r = context.document.body.search(cleaned.slice(0,60), {matchCase:false, matchWholeWord:false});
-    r.load('items');
+    var paras = context.document.body.paragraphs;
+    paras.load('items');
     return context.sync().then(function(){
-      if(!r.items.length) return;
-      r.items[0].font.highlightColor = color;
-      r.items[0].select();
+      var scope = findClauseScope(paras.items, clauseRef, original);
+      if(!scope) return;
+      var si = scope.scopeStart, ei = scope.scopeEnd;
+      /* Find exact paragraph containing original start */
+      var origSnip = safeSnip(original, 25).toLowerCase();
+      var targetStart = si;
+      for(var i=si; i<=ei; i++){
+        if(safeSnip(paras.items[i].text, 300).toLowerCase().indexOf(origSnip) >= 0){
+          targetStart = i; break;
+        }
+      }
+      /* Find end paragraph */
+      var origEndSnip = safeSnip(original.slice(-25), 25).toLowerCase();
+      var targetEnd = targetStart;
+      for(var i=targetStart; i<=Math.min(targetStart+10, ei); i++){
+        if(safeSnip(paras.items[i].text, 300).toLowerCase().indexOf(origEndSnip) >= 0){
+          targetEnd = i;
+        }
+      }
+      var merged = paras.items[targetStart].getRange('Start')
+        .expandTo(paras.items[targetEnd].getRange('End'));
+      merged.font.color = color;
+      merged.select();
       return context.sync();
     });
   }).catch(function(){});
+}
+
+/* Clear all font color overrides in Word document */
+function clearAllWordColors(){
+  if(typeof Word === 'undefined') return;
+  Word.run(function(context){
+    /* Search all text and reset font color */
+    var body = context.document.body;
+    var all = body.search('*', {matchWildcards: true});
+    all.load('items');
+    return context.sync().then(function(){
+      all.items.forEach(function(r){ r.font.color = 'Auto'; });
+      return context.sync();
+    });
+  }).catch(function(){
+    /* Fallback: paragraph by paragraph */
+    Word.run(function(ctx){
+      var paras = ctx.document.body.paragraphs;
+      paras.load('items');
+      return ctx.sync().then(function(){
+        paras.items.forEach(function(p){ p.font.color = 'Auto'; });
+        return ctx.sync();
+      });
+    }).catch(function(){});
+  });
+}
+
+/* Select (jump to) clause in Word without adding color */
+function selectInWordOnly(original, clauseRef){
+  if(typeof Word === 'undefined' || !original) return;
+  Word.run(function(context){
+    var paras = context.document.body.paragraphs;
+    paras.load('items');
+    return context.sync().then(function(){
+      var scope = findClauseScope(paras.items, clauseRef||'', original);
+      var si, ei;
+      if(scope){
+        si = scope.scopeStart; ei = scope.scopeEnd;
+      } else {
+        si = 0; ei = paras.items.length - 1;
+      }
+      var origSnip = safeSnip(original, 25).toLowerCase();
+      var origEndSnip = safeSnip(original.slice(-25), 25).toLowerCase();
+      var targetStart = si, targetEnd = si;
+      for(var i=si; i<=ei; i++){
+        var pt = safeSnip(paras.items[i].text, 300).toLowerCase();
+        if(pt.indexOf(origSnip) >= 0){ targetStart = i; break; }
+      }
+      for(var i=targetStart; i<=Math.min(targetStart+10, ei); i++){
+        if(safeSnip(paras.items[i].text, 300).toLowerCase().indexOf(origEndSnip) >= 0){
+          targetEnd = i;
+        }
+      }
+      var merged = paras.items[targetStart].getRange('Start')
+        .expandTo(paras.items[targetEnd].getRange('End'));
+      merged.select();
+      return context.sync();
+    });
+  }).catch(function(){});
+}
+
+function highlightInWord(text, level, clauseRef){
+  colorClauseInWord(text, clauseRef||'', level);
 }
 
 
@@ -2348,7 +2446,7 @@ function writeReviewToWord(){
   if(typeof Word === 'undefined' || !D.reviewTable || !D.reviewTable.length) return;
 
   var statusEl = g('WordWriteStatus');
-  if(statusEl){ statusEl.textContent = '⏳ Writing to Word...'; statusEl.style.color='#6b7280'; }
+  if(statusEl){ statusEl.textContent = '⏳ Writing...'; statusEl.style.color='#6b7280'; }
 
   var noteItems   = D.reviewTable.filter(function(r){ return r.action_type==='note'   && r.original && r.original!=='N/A' && r.original!==''; });
   var reviseItems = D.reviewTable.filter(function(r){ return r.action_type==='revise' && r.original && r.original!=='N/A' && r.original!==''; });
@@ -2359,16 +2457,16 @@ function writeReviewToWord(){
     var s = g('WordWriteStatus');
     if(!s) return;
     if(written+failed >= total){
-      s.textContent = '✓ ' + written + ' written' + (failed>0 ? ' / '+failed+' failed':'');
-      s.style.color = failed > 0 ? '#f59e0b' : '#16a34a';
+      s.textContent = '✓ ' + written + ' written' + (failed>0?' / '+failed+' failed':'');
+      s.style.color = failed>0 ? '#f59e0b' : '#16a34a';
     } else {
-      s.textContent = '⏳ ' + (written+failed) + '/' + total;
+      s.textContent = '⏳ '+(written+failed)+'/'+total;
     }
   }
 
-  if(total === 0){
-    var s2 = g('WordWriteStatus');
-    if(s2){ s2.textContent = '—'; s2.style.color='#6b7280'; }
+  if(total===0){
+    var s2=g('WordWriteStatus');
+    if(s2){s2.textContent='—';s2.style.color='#6b7280';}
     return;
   }
 
@@ -2377,37 +2475,33 @@ function writeReviewToWord(){
     var commentText = item.suggested_revision
       ? item.suggested_revision.replace(/^\[|\]$/g,'').trim()
       : (item.issue||'');
-    if(!commentText){ written++; updateStatus(); return; }
+    if(!commentText){written++;updateStatus();return;}
 
-    var startSnip = item.original.replace(/\s+/g,' ').trim().slice(0,30).toLowerCase();
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
       return context.sync().then(function(){
+        var scope = findClauseScope(paras.items, item.clause_ref||'', item.original);
+        if(!scope){failed++;updateStatus();return;}
+        var origSnip = safeSnip(item.original, 25).toLowerCase();
         var targetPara = null;
-        for(var i=0; i<paras.items.length; i++){
-          if(paras.items[i].text.toLowerCase().indexOf(startSnip)>=0){
+        for(var i=scope.scopeStart; i<=scope.scopeEnd; i++){
+          if(safeSnip(paras.items[i].text,300).toLowerCase().indexOf(origSnip)>=0){
             targetPara = paras.items[i]; break;
           }
         }
-        if(!targetPara){ failed++; updateStatus(); return; }
-        var range = targetPara.getRange();
-        range.insertComment(commentText);
-        return context.sync().then(function(){ written++; updateStatus(); });
+        if(!targetPara){failed++;updateStatus();return;}
+        targetPara.getRange().insertComment(commentText);
+        return context.sync().then(function(){written++;updateStatus();});
       });
-    }).catch(function(e){
-      console.log('Comment error:', e.message||e);
-      failed++; updateStatus();
-    });
+    }).catch(function(e){console.log('Comment error:',e.message||e);failed++;updateStatus();});
   });
 
-  /* ── REVISE → Track Changes with clause_ref anchor ── */
+  /* ── REVISE → Track Changes with scoped search ── */
   reviseItems.forEach(function(item){
     var segs = parseRedlineSegments(item.suggested_revision||'');
-    var hasChanges = segs.some(function(s){ return s.type==='add'||s.type==='del'; });
-    if(!hasChanges){ written++; updateStatus(); return; }
-
-    var clauseRef = (item.clause_ref||'').trim(); /* e.g. "Article 3.4" */
+    var hasChanges = segs.some(function(s){return s.type==='add'||s.type==='del';});
+    if(!hasChanges){written++;updateStatus();return;}
 
     Word.run(function(context){
       context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
@@ -2415,108 +2509,64 @@ function writeReviewToWord(){
       paras.load('items');
       return context.sync().then(function(){
 
-        /* Step 1: find the paragraph range for this clause */
-        var clauseStartIdx = -1;
-        if(clauseRef && clauseRef !== '缺失'){
-          /* Search for clause ref number e.g. "3.4" or "Article 3" */
-          var refLow = clauseRef.toLowerCase();
-          for(var i=0; i<paras.items.length; i++){
-            if(paras.items[i].text.toLowerCase().indexOf(refLow) >= 0){
-              clauseStartIdx = i; break;
-            }
-          }
-          /* Fallback: try just the number part e.g. "3.4" */
-          if(clauseStartIdx < 0){
-            var numPart = clauseRef.replace(/[^0-9.]/g,'');
-            if(numPart){
-              for(var i=0; i<paras.items.length; i++){
-                if(paras.items[i].text.indexOf(numPart) >= 0){
-                  clauseStartIdx = i; break;
-                }
-              }
-            }
-          }
-        }
+        var scope = findClauseScope(paras.items, item.clause_ref||'', item.original);
+        if(!scope){failed++;updateStatus();return;}
 
-        /* Step 2: search for del/add segments ONLY within the clause scope */
-        /* Scope: clauseStartIdx to clauseStartIdx+10 paragraphs (or whole doc if not found) */
-        var scopeStart = clauseStartIdx >= 0 ? clauseStartIdx : 0;
-        var scopeEnd   = clauseStartIdx >= 0 ? Math.min(clauseStartIdx+15, paras.items.length-1) : paras.items.length-1;
-
-        /* Build scoped text for verification */
-        var scopeText = '';
-        for(var i=scopeStart; i<=scopeEnd; i++){
-          scopeText += paras.items[i].text + ' ';
-        }
-        scopeText = scopeText.toLowerCase();
+        var si = scope.scopeStart, ei = scope.scopeEnd;
 
         function processSegs(segList, idx){
-          if(idx >= segList.length) return Promise.resolve();
-          var seg = segList[idx];
-          if(seg.type === 'keep') return processSegs(segList, idx+1);
+          if(idx>=segList.length) return Promise.resolve();
+          var seg=segList[idx];
+          if(seg.type==='keep') return processSegs(segList,idx+1);
 
-          if(seg.type === 'del'){
-            var delText = seg.text.replace(/\s+/g,' ').trim();
-            if(!delText) return processSegs(segList, idx+1);
-            /* Verify del text exists in scope */
-            if(scopeText.indexOf(delText.toLowerCase().slice(0,20)) < 0){
-              return processSegs(segList, idx+1);
-            }
+          if(seg.type==='del'){
+            var delSnip = safeSnip(seg.text, 50);
+            if(!delSnip) return processSegs(segList,idx+1);
             return Word.run(function(ctx){
-              ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-              /* Search within scoped paragraphs */
-              var scopedRange = paras.items[scopeStart].getRange('Start')
-                .expandTo(paras.items[scopeEnd].getRange('End'));
-              var results = scopedRange.search(delText, {matchCase:false, matchWholeWord:false});
+              ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
+              var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+              var results = scopedRange.search(delSnip,{matchCase:false,matchWholeWord:false});
               results.load('items');
               return ctx.sync().then(function(){
-                if(results.items.length > 0) results.items[0].insertText('', 'Replace');
+                if(results.items.length>0) results.items[0].insertText('','Replace');
                 return ctx.sync();
               });
-            }).then(function(){ return processSegs(segList, idx+1); })
-             .catch(function(){ return processSegs(segList, idx+1); });
+            }).then(function(){return processSegs(segList,idx+1);})
+             .catch(function(){return processSegs(segList,idx+1);});
           }
 
-          if(seg.type === 'add'){
-            var anchor = '';
-            for(var k=idx-1; k>=0; k--){
-              if(segList[k].type==='del' && segList[k].text.trim().length>3){
-                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
+          if(seg.type==='add'){
+            var anchor='';
+            for(var k=idx-1;k>=0;k--){
+              if(segList[k].type==='del'&&segList[k].text.trim().length>3){
+                anchor=safeSnip(segList[k].text,30).slice(-20); break;
               }
-              if(segList[k].type==='keep' && segList[k].text.trim().length>5){
-                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
+              if(segList[k].type==='keep'&&segList[k].text.trim().length>5){
+                anchor=safeSnip(segList[k].text,60).slice(-20); break;
               }
             }
-            if(!anchor) return processSegs(segList, idx+1);
-            /* Verify anchor exists in scope */
-            if(scopeText.indexOf(anchor.toLowerCase().slice(0,15)) < 0){
-              return processSegs(segList, idx+1);
-            }
-            var addText = seg.text;
+            if(!anchor) return processSegs(segList,idx+1);
+            var addText=seg.text;
             return Word.run(function(ctx){
-              ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-              var scopedRange2 = paras.items[scopeStart].getRange('Start')
-                .expandTo(paras.items[scopeEnd].getRange('End'));
-              var results = scopedRange2.search(anchor, {matchCase:false, matchWholeWord:false});
+              ctx.document.changeTrackingMode=Word.ChangeTrackingMode.trackAll;
+              var scopedRange2 = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
+              var results = scopedRange2.search(anchor,{matchCase:false,matchWholeWord:false});
               results.load('items');
               return ctx.sync().then(function(){
-                if(results.items.length > 0) results.items[0].getRange('End').insertText(addText, 'After');
+                if(results.items.length>0) results.items[0].getRange('End').insertText(addText,'After');
                 return ctx.sync();
               });
-            }).then(function(){ return processSegs(segList, idx+1); })
-             .catch(function(){ return processSegs(segList, idx+1); });
+            }).then(function(){return processSegs(segList,idx+1);})
+             .catch(function(){return processSegs(segList,idx+1);});
           }
-          return processSegs(segList, idx+1);
+          return processSegs(segList,idx+1);
         }
 
-        return processSegs(segs, 0);
+        return processSegs(segs,0);
       }).then(function(){
-        return Word.run(function(ctx){ ctx.document.changeTrackingMode = Word.ChangeTrackingMode.off; return ctx.sync(); });
-      }).then(function(){ written++; updateStatus(); });
-    }).catch(function(e){
-      console.log('Revise error:', e.message||e);
-      failed++; updateStatus();
-    });
+        return Word.run(function(ctx){ctx.document.changeTrackingMode=Word.ChangeTrackingMode.off;return ctx.sync();});
+      }).then(function(){written++;updateStatus();});
+    }).catch(function(e){console.log('Revise error:',e.message||e);failed++;updateStatus();});
   });
 }
 /* ══════════════════════════════════════════
@@ -2545,47 +2595,6 @@ function applyReviewHighlightsWord(){
   /* Individual card clicks will select/jump via reviewSelectCard */
 }
 
-function selectInWordOnly(text){
-  /* Select (jump to) text in Word without adding color highlight */
-  if(typeof Word === 'undefined' || !text) return;
-  var cleaned = text.replace(/\s+/g,' ').trim();
-  if(!cleaned) return;
-
-  if(D.wordParas && D.wordParas.length){
-    var startSnip = cleaned.slice(0,30).toLowerCase();
-    var endSnip   = cleaned.slice(-30).toLowerCase();
-    var startIdx = -1, endIdx = -1;
-    for(var i=0; i<D.wordParas.length; i++){
-      var pl = D.wordParas[i].toLowerCase();
-      if(startIdx===-1 && pl.indexOf(startSnip)>=0) startIdx=i;
-      if(pl.indexOf(endSnip)>=0) endIdx=i;
-    }
-    if(startIdx>=0){
-      if(endIdx<startIdx) endIdx=startIdx;
-      Word.run(function(context){
-        var paras = context.document.body.paragraphs;
-        paras.load('items');
-        return context.sync().then(function(){
-          var si=Math.min(startIdx,paras.items.length-1);
-          var ei=Math.min(endIdx,paras.items.length-1);
-          var merged=paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-          merged.select();
-          return context.sync();
-        });
-      }).catch(function(){});
-      return;
-    }
-  }
-  /* Fallback */
-  Word.run(function(context){
-    var r=context.document.body.search(cleaned.slice(0,60),{matchCase:false,matchWholeWord:false});
-    r.load('items');
-    return context.sync().then(function(){
-      if(r.items.length) r.items[0].select();
-      return context.sync();
-    });
-  }).catch(function(){});
-}
 
 function selectReviewCard(id){
   var entry = D.reviewTable && D.reviewTable.filter(function(e){ return e.id===id; })[0];

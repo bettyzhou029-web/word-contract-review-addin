@@ -1136,52 +1136,47 @@ function renderScan(){
 
 function highlightAllClausesInWord(){
   if(typeof Word === 'undefined') return;
-  D._p2entered = false; /* Reset flag */
+  D._p2entered = false;
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise'};
-  D.clauses.forEach(function(c){
+  dbgLog('P1 batch highlight: '+D.clauses.length+' clauses', 'info');
+  D.clauses.forEach(function(c, idx){
     if(!c.original) return;
     var color = colorMap[c.level] || 'Yellow';
-    /* Try full original text first, fallback to 60 chars */
     var fullSnip = c.original.replace(/[\u201c\u201d\u2018\u2019\u2013\u2014\u00a0]/g, function(ch){
-      if(ch==='\u201c'||ch==='\u201d') return '"';
-      if(ch==='\u2018'||ch==='\u2019') return "'";
-      if(ch==='\u2013'||ch==='\u2014') return '-';
-      if(ch==='\u00a0') return ' ';
-      return ch;
+      return (ch==='\u201c'||ch==='\u201d')?'"':(ch==='\u2018'||ch==='\u2019')?"'":(ch==='\u2013'||ch==='\u2014')?'-':' ';
     }).replace(/\s+/g,' ').trim();
     var shortSnip = safeSnip(c.original, 60);
     if(!shortSnip) return;
-
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
       return context.sync().then(function(){
         var scope = findClauseScope(paras.items, c.clause_ref||'', c.original);
+        dbgLog('['+idx+'] ref="'+(c.clause_ref||'').slice(0,25)+'" scope='+(scope?scope.scopeStart+'-'+scope.scopeEnd:'null'), scope?'info':'warn');
         var si = scope ? scope.scopeStart : 0;
         var ei = scope ? scope.scopeEnd : paras.items.length-1;
         var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
-
-        /* Try full text search first */
         var trySearch = function(snip){
           var results = scopedRange.search(snip, {matchCase:false, matchWholeWord:false});
           results.load('items');
           return context.sync().then(function(){
             if(results.items.length > 0){
               results.items[0].font.highlightColor = color;
+              dbgLog('['+idx+'] OK: "'+snip.slice(0,25)+'..."', 'ok');
               return context.sync();
             }
             return null;
           });
         };
-
-        return trySearch(fullSnip.slice(0, 255)).then(function(res){
-          if(D._p2entered) return; /* P2 entered, skip remaining highlights */
-          if(res === null){
+        return trySearch(fullSnip.slice(0,255)).then(function(res){
+          if(D._p2entered) return;
+          if(res===null){
+            dbgLog('['+idx+'] fallback short snip', 'warn');
             return trySearch(shortSnip);
           }
         });
       });
-    }).catch(function(){});
+    }).catch(function(e){ dbgLog('['+idx+'] err: '+(e.message||e), 'err'); });
   });
 }
 

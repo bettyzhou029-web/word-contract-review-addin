@@ -89,10 +89,18 @@ main{display:flex;flex-direction:column;overflow:hidden;}
 .esub{font-family:var(--mono);font-size:10px;}
 
 /* ── Loading ── */
-.ldg{display:none;position:fixed;inset:0;background:rgba(255,255,255,0.92);z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:20px;}
+.ldg{display:none;position:fixed;inset:0;background:#f8f7f4;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:28px;}
 .ldg.on{display:flex;}
-.lbar{width:200px;height:2px;background:var(--border-light);border-radius:1px;overflow:hidden;}
-.lbar::after{content:'';display:block;width:40%;height:100%;background:var(--ink);animation:sc 1.4s ease-in-out infinite;}
+.ldg-logo{width:48px;height:48px;position:relative;}
+.ldg-logo svg{animation:ldg-spin 2.4s ease-in-out infinite;}
+@keyframes ldg-spin{0%{transform:rotate(0deg) scale(1);}50%{transform:rotate(180deg) scale(1.1);}100%{transform:rotate(360deg) scale(1);}}
+.ldg-dots{display:flex;gap:6px;align-items:center;}
+.ldg-dot{width:6px;height:6px;border-radius:50%;background:#cbd5e1;animation:ldg-pulse 1.4s ease-in-out infinite;}
+.ldg-dot:nth-child(1){animation-delay:0s;}
+.ldg-dot:nth-child(2){animation-delay:.2s;}
+.ldg-dot:nth-child(3){animation-delay:.4s;}
+@keyframes ldg-pulse{0%,80%,100%{transform:scale(0.8);background:#cbd5e1;}40%{transform:scale(1.2);background:#0f172a;}}
+.lmsg{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.06em;color:#64748b;text-transform:uppercase;}
 @keyframes sc{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 .lmsg{font-family:var(--mono);font-size:11px;color:var(--ink-muted);}
 
@@ -481,7 +489,22 @@ main{display:flex;flex-direction:column;overflow:hidden;}
     </div>
 
     <!-- Loading -->
-    <div class="ldg" id="LD"><div class="lbar"></div><div class="lmsg" id="LM">Analyzing contract...</div><button onclick="cancelRun()" style="margin-top:16px;padding:8px 20px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;font-family:var(--mono);font-size:10px;color:#6b7280;">✕ Cancel</button></div>
+    <div class="ldg" id="LD">
+      <div class="ldg-logo">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="48" rx="12" fill="#0f172a"/>
+          <path d="M14 24h20M14 17h12M14 31h16" stroke="#f1f5f9" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="36" cy="17" r="3" fill="#3b82f6"/>
+        </svg>
+      </div>
+      <div class="ldg-dots">
+        <div class="ldg-dot"></div>
+        <div class="ldg-dot"></div>
+        <div class="ldg-dot"></div>
+      </div>
+      <div class="lmsg" id="LM">Analyzing contract...</div>
+      <button onclick="cancelRun()" style="padding:7px 18px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;color:#94a3b8;letter-spacing:.04em;">✕ Cancel</button>
+    </div>
 
     <!-- Page 1: Scan -->
     <div class="page" id="P1">
@@ -1084,10 +1107,8 @@ function renderScan(){
 }
 
 function highlightAllClausesInWord(){
-  if(typeof Word === 'undefined') return;
-  D.clauses.forEach(function(c){
-    if(c.original) highlightInWord(c.original, c.level||'low');
-  });
+  /* Batch highlight removed — Word highlight API unreliable for clear on P2 entry */
+  /* P1 uses select-only on card click */
 }
 
 function renderRiskList(){
@@ -1725,7 +1746,7 @@ function selectRisk(idx){
     ? D.userClauses[parseInt(idx.slice(1))]
     : D.clauses[parseInt(idx)];
   if(clause && clause.original){
-    highlightInWord(clause.original, clause.level||'low');
+    selectInWordOnly(clause.original);
   }
 
   /* Expand active card, collapse others */
@@ -2353,7 +2374,6 @@ function writeReviewToWord(){
           }
         }
         if(!targetPara){ failed++; updateStatus(); return; }
-        /* insertComment on the paragraph range */
         var range = targetPara.getRange();
         range.insertComment(commentText);
         return context.sync().then(function(){ written++; updateStatus(); });
@@ -2364,72 +2384,107 @@ function writeReviewToWord(){
     });
   });
 
-  /* ── REVISE → Track Changes (minimal diff) ── */
+  /* ── REVISE → Track Changes with clause_ref anchor ── */
   reviseItems.forEach(function(item){
     var segs = parseRedlineSegments(item.suggested_revision||'');
     var hasChanges = segs.some(function(s){ return s.type==='add'||s.type==='del'; });
     if(!hasChanges){ written++; updateStatus(); return; }
 
-    /* Find del and add pairs — process sequentially in one Word.run */
-    var cleaned = item.original.replace(/\s+/g,' ').trim();
+    var clauseRef = (item.clause_ref||'').trim(); /* e.g. "Article 3.4" */
 
     Word.run(function(context){
       context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-      var body = context.document.body;
-
-      /* We need to process each del/add operation */
-      /* Build a chain of operations via sequential search+replace */
+      var paras = context.document.body.paragraphs;
+      paras.load('items');
       return context.sync().then(function(){
-        /* Process segments sequentially */
+
+        /* Step 1: find the paragraph range for this clause */
+        var clauseStartIdx = -1;
+        if(clauseRef && clauseRef !== '缺失'){
+          /* Search for clause ref number e.g. "3.4" or "Article 3" */
+          var refLow = clauseRef.toLowerCase();
+          for(var i=0; i<paras.items.length; i++){
+            if(paras.items[i].text.toLowerCase().indexOf(refLow) >= 0){
+              clauseStartIdx = i; break;
+            }
+          }
+          /* Fallback: try just the number part e.g. "3.4" */
+          if(clauseStartIdx < 0){
+            var numPart = clauseRef.replace(/[^0-9.]/g,'');
+            if(numPart){
+              for(var i=0; i<paras.items.length; i++){
+                if(paras.items[i].text.indexOf(numPart) >= 0){
+                  clauseStartIdx = i; break;
+                }
+              }
+            }
+          }
+        }
+
+        /* Step 2: search for del/add segments ONLY within the clause scope */
+        /* Scope: clauseStartIdx to clauseStartIdx+10 paragraphs (or whole doc if not found) */
+        var scopeStart = clauseStartIdx >= 0 ? clauseStartIdx : 0;
+        var scopeEnd   = clauseStartIdx >= 0 ? Math.min(clauseStartIdx+15, paras.items.length-1) : paras.items.length-1;
+
+        /* Build scoped text for verification */
+        var scopeText = '';
+        for(var i=scopeStart; i<=scopeEnd; i++){
+          scopeText += paras.items[i].text + ' ';
+        }
+        scopeText = scopeText.toLowerCase();
+
         function processSegs(segList, idx){
           if(idx >= segList.length) return Promise.resolve();
           var seg = segList[idx];
-          if(seg.type === 'keep'){
-            return processSegs(segList, idx+1);
-          }
+          if(seg.type === 'keep') return processSegs(segList, idx+1);
+
           if(seg.type === 'del'){
-            /* Search for the del text and delete it (track changes will record it) */
             var delText = seg.text.replace(/\s+/g,' ').trim();
             if(!delText) return processSegs(segList, idx+1);
-            return Word.run(function(ctx2){
-              ctx2.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-              var results = ctx2.document.body.search(delText, {matchCase:false, matchWholeWord:false});
+            /* Verify del text exists in scope */
+            if(scopeText.indexOf(delText.toLowerCase().slice(0,20)) < 0){
+              return processSegs(segList, idx+1);
+            }
+            return Word.run(function(ctx){
+              ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+              /* Search within scoped paragraphs */
+              var scopedRange = paras.items[scopeStart].getRange('Start')
+                .expandTo(paras.items[scopeEnd].getRange('End'));
+              var results = scopedRange.search(delText, {matchCase:false, matchWholeWord:false});
               results.load('items');
-              return ctx2.sync().then(function(){
-                if(results.items.length > 0){
-                  results.items[0].insertText('', 'Replace');
-                }
-                return ctx2.sync();
+              return ctx.sync().then(function(){
+                if(results.items.length > 0) results.items[0].insertText('', 'Replace');
+                return ctx.sync();
               });
             }).then(function(){ return processSegs(segList, idx+1); })
              .catch(function(){ return processSegs(segList, idx+1); });
           }
+
           if(seg.type === 'add'){
-            /* Find anchor: prefer del segment immediately before (still in doc as strikethrough),
-               fallback to last keep segment */
             var anchor = '';
             for(var k=idx-1; k>=0; k--){
               if(segList[k].type==='del' && segList[k].text.trim().length>3){
-                /* Use the del text as anchor — Track Changes keeps it visible */
-                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20);
-                break;
+                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
               }
               if(segList[k].type==='keep' && segList[k].text.trim().length>5){
-                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20);
-                break;
+                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20); break;
               }
             }
             if(!anchor) return processSegs(segList, idx+1);
+            /* Verify anchor exists in scope */
+            if(scopeText.indexOf(anchor.toLowerCase().slice(0,15)) < 0){
+              return processSegs(segList, idx+1);
+            }
             var addText = seg.text;
-            return Word.run(function(ctx3){
-              ctx3.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-              var results = ctx3.document.body.search(anchor, {matchCase:false, matchWholeWord:false});
+            return Word.run(function(ctx){
+              ctx.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+              var scopedRange2 = paras.items[scopeStart].getRange('Start')
+                .expandTo(paras.items[scopeEnd].getRange('End'));
+              var results = scopedRange2.search(anchor, {matchCase:false, matchWholeWord:false});
               results.load('items');
-              return ctx3.sync().then(function(){
-                if(results.items.length > 0){
-                  results.items[0].getRange('End').insertText(addText, 'After');
-                }
-                return ctx3.sync();
+              return ctx.sync().then(function(){
+                if(results.items.length > 0) results.items[0].getRange('End').insertText(addText, 'After');
+                return ctx.sync();
               });
             }).then(function(){ return processSegs(segList, idx+1); })
              .catch(function(){ return processSegs(segList, idx+1); });
@@ -2439,11 +2494,7 @@ function writeReviewToWord(){
 
         return processSegs(segs, 0);
       }).then(function(){
-        /* Turn off track changes after done */
-        return Word.run(function(ctx4){
-          ctx4.document.changeTrackingMode = Word.ChangeTrackingMode.off;
-          return ctx4.sync();
-        });
+        return Word.run(function(ctx){ ctx.document.changeTrackingMode = Word.ChangeTrackingMode.off; return ctx.sync(); });
       }).then(function(){ written++; updateStatus(); });
     }).catch(function(e){
       console.log('Revise error:', e.message||e);

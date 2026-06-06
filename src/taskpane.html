@@ -786,7 +786,6 @@ function goPage(n){
   });
 
   if(n===2) setTimeout(function(){
-    /* Clear P1 highlights before writing P2 Track Changes */
     clearAllWordHighlights();
     applyReviewHighlightsWord();
   }, 200);
@@ -2406,23 +2405,21 @@ function writeReviewToWord(){
              .catch(function(){ return processSegs(segList, idx+1); });
           }
           if(seg.type === 'add'){
-            /* Find anchor: the keep segment before this add */
+            /* Find anchor: prefer del segment immediately before (still in doc as strikethrough),
+               fallback to last keep segment */
             var anchor = '';
             for(var k=idx-1; k>=0; k--){
-              if(segList[k].type==='keep' && segList[k].text.trim().length>10){
+              if(segList[k].type==='del' && segList[k].text.trim().length>3){
+                /* Use the del text as anchor — Track Changes keeps it visible */
                 anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20);
                 break;
               }
-              if(segList[k].type==='del' && k>0){
-                /* anchor is text before the del */
-                for(var k2=k-1; k2>=0; k2--){
-                  if(segList[k2].type==='keep' && segList[k2].text.trim().length>5){
-                    anchor = segList[k2].text.replace(/\s+/g,' ').trim().slice(-20);
-                    break;
-                  }
-                }
+              if(segList[k].type==='keep' && segList[k].text.trim().length>5){
+                anchor = segList[k].text.replace(/\s+/g,' ').trim().slice(-20);
                 break;
               }
+            }
+            if(!anchor) return processSegs(segList, idx+1);
             }
             var addText = seg.text;
             if(!anchor){ return processSegs(segList, idx+1); }
@@ -2470,14 +2467,10 @@ function applyReviewHighlights(){
 function clearAllWordHighlights(){
   if(typeof Word === 'undefined') return;
   Word.run(function(context){
-    var paras = context.document.body.paragraphs;
-    paras.load('items');
-    return context.sync().then(function(){
-      paras.items.forEach(function(p){
-        p.font.highlightColor = 'NoColor';
-      });
-      return context.sync();
-    });
+    /* Clear highlight on entire body at once — more reliable than paragraph loop */
+    var body = context.document.body;
+    body.font.highlightColor = 'NoColor';
+    return context.sync();
   }).catch(function(){});
 }
 
@@ -2860,7 +2853,6 @@ function reviewSelectCard(key){
     if(item4&&item4.original){
       selectInWordOnly(item4.original);
     }
-    /* Scroll right panel to active card */
     var rrb=g('ReviewRightBody');
     var card2=g('rvc_'+cardId);
     if(rrb&&card2){

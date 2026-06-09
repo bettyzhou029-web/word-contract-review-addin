@@ -1144,20 +1144,28 @@ function highlightAllClausesInWord(){
   D._p2entered = false;
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise'};
   dbgLog('P1 batch highlight: '+D.clauses.length+' clauses', 'info');
-  D.clauses.forEach(function(c, idx){
-    if(!c.original) return;
+
+  /* Run serially to prevent later highlights overwriting earlier ones */
+  var clausesToHighlight = D.clauses.filter(function(c){ return c.original && c.original.trim(); });
+
+  function highlightOne(idx){
+    if(D._p2entered) return;
+    if(idx >= clausesToHighlight.length) return;
+    var c = clausesToHighlight[idx];
     var color = colorMap[c.level] || 'Yellow';
     var fullSnip = c.original.replace(/[\u201c\u201d\u2018\u2019\u2013\u2014\u00a0]/g, function(ch){
       return (ch==='\u201c'||ch==='\u201d')?'"':(ch==='\u2018'||ch==='\u2019')?"'":(ch==='\u2013'||ch==='\u2014')?'-':' ';
     }).replace(/\s+/g,' ').trim();
     var shortSnip = safeSnip(c.original, 60);
-    if(!shortSnip) return;
+    if(!shortSnip){ highlightOne(idx+1); return; }
+
+    var origIdx = D.clauses.indexOf(c);
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
       return context.sync().then(function(){
         var scope = findClauseScope(paras.items, c.clause_ref||'', c.original);
-        dbgLog('['+idx+'] ref="'+(c.clause_ref||'').slice(0,25)+'" scope='+(scope?scope.scopeStart+'-'+scope.scopeEnd:'null'), scope?'info':'warn');
+        dbgLog('['+origIdx+'] ref="'+(c.clause_ref||'').slice(0,25)+'" scope='+(scope?scope.scopeStart+'-'+scope.scopeEnd:'null'), scope?'info':'warn');
         var si = scope ? scope.scopeStart : 0;
         var ei = scope ? scope.scopeEnd : paras.items.length-1;
         var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
@@ -1167,22 +1175,29 @@ function highlightAllClausesInWord(){
           return context.sync().then(function(){
             if(results.items.length > 0){
               results.items[0].font.highlightColor = color;
-              dbgLog('['+idx+'] OK: "'+snip.slice(0,25)+'..."', 'ok');
+              dbgLog('['+origIdx+'] OK: "'+snip.slice(0,25)+'..."', 'ok');
               return context.sync();
             }
             return null;
           });
         };
-        return trySearch(fullSnip.slice(0,255)).then(function(res){
+        return trySearch(fullSnip.slice(0,500)).then(function(res){
           if(D._p2entered) return;
           if(res===null){
-            dbgLog('['+idx+'] fallback short snip', 'warn');
+            dbgLog('['+origIdx+'] fallback short snip', 'warn');
             return trySearch(shortSnip);
           }
         });
       });
-    }).catch(function(e){ dbgLog('['+idx+'] err: '+(e.message||e), 'err'); });
-  });
+    }).catch(function(e){
+      dbgLog('['+origIdx+'] err: '+(e.message||e), 'err');
+    }).then(function(){
+      /* Move to next clause after this one completes */
+      highlightOne(idx+1);
+    });
+  }
+
+  highlightOne(0);
 }
 
 function renderRiskList(){
@@ -1824,7 +1839,7 @@ function selectRisk(idx){
     var color = colorMap[clause.level] || 'Yellow';
     var fullSnip = clause.original.replace(/[\u201c\u201d]/g,'"').replace(/[\u2018\u2019]/g,"'")
       .replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
-    var searchSnip = fullSnip.slice(0, 255);
+    var searchSnip = fullSnip.slice(0, 500);
     var fallbackSnip = safeSnip(clause.original, 60);
     if(!fallbackSnip) return;
     if(typeof Word === 'undefined') return;

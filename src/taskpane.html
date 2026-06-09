@@ -1101,19 +1101,7 @@ function parseScanResult(raw){
     return;
   }
 
-  /* Sort clauses by position in Word text */
-  var wordText = D.wordText||'';
-  if(wordText){
-    var normForSort = wordText.replace(/\s+/g,' ').toLowerCase();
-    clauses.forEach(function(c){
-      if(!c.original){ c._pos=999999; return; }
-      var normOrig = c.original.replace(/\s+/g,' ').toLowerCase();
-      var pos = normForSort.indexOf(normOrig.slice(0,60));
-      if(pos<0){ pos = normForSort.indexOf(normOrig.slice(0,30)); }
-      c._pos = pos<0 ? 999999 : pos;
-    });
-    clauses.sort(function(a,b){ return a._pos - b._pos; });
-  }
+  /* Keep Dify output order — sorting by document position causes index mismatch */
 
   D.clauses=clauses;
   D.contractText=wordText;

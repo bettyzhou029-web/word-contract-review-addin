@@ -1075,7 +1075,14 @@ function parseScanResult(raw){
   var scanIdx=raw.indexOf('SCAN_RESULT:');
   /* Normalize curly/smart quotes to straight quotes before parsing */
   function normQuotes(s){
-    return s.replace(/[\u201c\u201d\u201e\u201f]/g,'"').replace(/[\u2018\u2019\u201a\u201b]/g,"'");
+    /* Replace curly/smart quotes with straight equivalents
+       For JSON safety, replace curly double quotes with single quotes
+       (replacing with \" would break JSON string delimiters) */
+    return s
+      .replace(/[\u201c\u201d\u201e\u201f\u300c\u300d\u300e\u300f]/g,"'")
+      .replace(/[\u2018\u2019\u201a\u201b]/g,"'")
+      .replace(/[\u3001]/g,',')   /* Chinese comma */
+      .replace(/[\uff0c]/g,',');  /* Fullwidth comma */
   }
 
   if(scanIdx!==-1){

@@ -1370,12 +1370,12 @@ function makeRiskCard(c, idx, isUser){
   var sug=c.suggestion||c.action_type||'';
   var sugHtml=sug?('<div class="risk-suggestion"><span class="risk-sug-lbl">\u2192 </span>'+esc(sug)+'</div>'):'';
   div.innerHTML=
-    '<div class="risk-card-head" onclick="selectRisk(\''+idx+'\')">'
+    '<div class="risk-card-head">'
     +(c.clause_ref?'<span class="risk-ref">'+esc(c.clause_ref)+'</span>':'')
     +'<button class="hl-edit-btn" id="hledit'+idx+'" onclick="event.stopPropagation();startHlEdit(\''+idx+'\')" title="Re-select highlight range">✎</button>'
     +'</div>'
-    +'<div class="risk-name" onclick="selectRisk(\''+idx+'\')" style="cursor:pointer;">'+esc(c.clause_name||'Unnamed Clause')+'</div>'
-    +'<div class="risk-issue" onclick="selectRisk(\''+idx+'\')" style="cursor:pointer;">'+esc(c.issue||'')+'</div>'
+    +'<div class="risk-name">'+esc(c.clause_name||'Unnamed Clause')+'</div>'
+    +'<div class="risk-issue">'+esc(c.issue||'')+'</div>'
     +sugHtml
     +'<div class="risk-actions">'
     +'<button class="ract'+(dec==='note'?' sel-note':'')+'\" onclick="event.stopPropagation();setDec(\''+idx+'\',\'note\')">As Note</button>'
@@ -1891,6 +1891,8 @@ function selectRisk(idx){
     var fallbackSnip = safeSnip(clause.original, 60);
     if(!fallbackSnip) return;
     if(typeof Word === 'undefined') return;
+    if(D._selectRiskBusy) return;
+    D._selectRiskBusy = true;
     Word.run(function(context){
       var paras = context.document.body.paragraphs;
       paras.load('items');
@@ -1904,8 +1906,9 @@ function selectRisk(idx){
         r1.load('items');
         return context.sync().then(function(){
           if(r1.items.length > 0){
+            try{ r1.items[0].font.highlightColor = color; }catch(e){}
             r1.items[0].select();
-            dbgLog('[selectRisk] select OK (full)', 'ok');
+            dbgLog('[selectRisk] OK (full)', 'ok');
             return context.sync();
           }
           /* Fallback */
@@ -1913,15 +1916,16 @@ function selectRisk(idx){
           r2.load('items');
           return context.sync().then(function(){
             if(r2.items.length > 0){
+              try{ r2.items[0].font.highlightColor = color; }catch(e){}
               r2.items[0].select();
-              dbgLog('[selectRisk] select OK (fallback)', 'ok');
+              dbgLog('[selectRisk] OK (fallback)', 'ok');
               return context.sync();
             }
             dbgLog('[selectRisk] NOT FOUND', 'warn');
           });
         });
       });
-    }).catch(function(e){ dbgLog('[selectRisk] err: '+(e.message||e), 'err'); });
+    }).catch(function(e){ dbgLog('[selectRisk] err: '+(e.message||e), 'err'); }).then(function(){ D._selectRiskBusy = false; });
   }
 
   /* Expand active card, collapse others */

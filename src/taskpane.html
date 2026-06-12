@@ -1132,6 +1132,7 @@ function parseScanResult(raw){
     }
     for(var i=0;i<n;i++){
       if(chars[i] !== '"') continue;
+      if(chars[i-1] === '\\') continue; /* already properly escaped \" - leave alone */
       var pi = skipWs(i-1,-1), ni = skipWs(i+1,1);
       var prevC = pi>=0 ? chars[pi] : '';
       var nextC = ni<n ? chars[ni] : '';

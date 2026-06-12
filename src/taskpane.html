@@ -1115,11 +1115,31 @@ function parseScanResult(raw){
     /* Replace curly/smart quotes with straight equivalents
        For JSON safety, replace curly double quotes with single quotes
        (replacing with \" would break JSON string delimiters) */
-    return s
+    s = s
       .replace(/[\u201c\u201d\u201e\u201f\u300c\u300d\u300e\u300f]/g,"'")
       .replace(/[\u2018\u2019\u201a\u201b]/g,"'")
       .replace(/[\u3001]/g,',')   /* Chinese comma */
       .replace(/[\uff0c]/g,',');  /* Fullwidth comma */
+    /* Fix ASCII straight quotes (") used as Chinese quotation marks inside string values.
+       A quote is a JSON STRUCTURAL quote if (skipping whitespace) it's adjacent to
+       : , { [ } ] or string boundary. Otherwise it's content -> convert to ' */
+    var chars = s.split('');
+    var n = chars.length;
+    function skipWs(idx, dir){
+      while(idx>=0 && idx<n && /\s/.test(chars[idx])) idx += dir;
+      return idx;
+    }
+    for(var i=0;i<n;i++){
+      if(chars[i] !== '"') continue;
+      var pi = skipWs(i-1,-1), ni = skipWs(i+1,1);
+      var prevC = pi>=0 ? chars[pi] : '';
+      var nextC = ni<n ? chars[ni] : '';
+      var isStructPrev = (prevC===':'||prevC===','||prevC==='{'||prevC==='['||prevC==='');
+      var isStructNext = (nextC===':'||nextC===','||nextC==='}'||nextC===']'||nextC==='');
+      if(isStructPrev || isStructNext) continue;
+      chars[i] = "'";
+    }
+    return chars.join('');
   }
 
   if(scanIdx!==-1){
@@ -4121,9 +4141,31 @@ function dbgCopy(){
   var body = g('DbgBody');
   if(!body) return;
   var text = Array.from(body.querySelectorAll('.dbg-line')).map(function(l){ return l.textContent; }).join('\n');
-  navigator.clipboard.writeText(text).then(function(){ toast('Debug log copied ✓'); }).catch(function(){
-    toast('Copy failed - use browser console instead');
-  });
+  if(!text){ toast('日志为空'); return; }
+
+  function fallbackCopy(){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    var ok = false;
+    try{ ok = document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+    if(ok) toast('Debug log copied ✓');
+    else toast('复制失败，请手动选中文本');
+  }
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      toast('Debug log copied ✓');
+    }).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
 }
 function dbgClear(){
   var body = g('DbgBody'); if(body) body.innerHTML='';

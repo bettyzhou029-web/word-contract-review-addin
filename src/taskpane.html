@@ -491,7 +491,8 @@ main{display:flex;flex-direction:column;overflow:hidden;}
       <span style="font-size:11px;color:var(--ink-muted);">或</span>
       <div style="flex:1;height:1px;background:var(--border);"></div>
     </div>
-    <button class="btn-sec" onclick="showImportTableDialog()" style="width:100%;margin-top:8px;font-size:12px;color:var(--ink-muted);">⬆ 直接导入审查表JSON</button>
+    <button class="btn-sec" onclick="showImportTableDialog('scan')" style="width:100%;margin-top:8px;font-size:12px;color:var(--ink-muted);">⬆ 导入SCAN_RESULT（测试P1）</button>
+    <button class="btn-sec" onclick="showImportTableDialog('table')" style="width:100%;margin-top:4px;font-size:12px;color:var(--ink-muted);">⬆ 导入REVIEW_TABLE（测试P2）</button>
   </aside>
 
   <main id="Main">
@@ -4631,9 +4632,23 @@ function reset(){
 /* ══════════════════════════════════════════
    IMPORT REVIEW TABLE
 ══════════════════════════════════════════ */
-function showImportTableDialog(){
+function showImportTableDialog(mode){
   var modal=g('ImportTableModal');
-  if(modal){ modal.style.display='flex'; g('ImportTableInput').value=''; g('ImportTableError').style.display='none'; }
+  if(modal){
+    D._importMode = mode || 'table';
+    modal.style.display='flex';
+    g('ImportTableInput').value='';
+    g('ImportTableError').style.display='none';
+    var titleEl = g('ImportTableTitle');
+    var hintEl = g('ImportTableHint');
+    if(D._importMode==='scan'){
+      if(titleEl) titleEl.textContent='导入SCAN_RESULT（测试P1）';
+      if(hintEl) hintEl.innerHTML='将Dify P1输出的JSON粘贴到下方，支持：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">SCAN_RESULT: {"clauses":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"clauses":[...]}</code>';
+    } else {
+      if(titleEl) titleEl.textContent='导入REVIEW_TABLE（测试P2）';
+      if(hintEl) hintEl.innerHTML='将Dify P2输出的JSON粘贴到下方，支持：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">REVIEW_TABLE: {"review_table":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"review_table":[...]}</code>';
+    }
+  }
 }
 function hideImportTableDialog(){
   var modal=g('ImportTableModal');
@@ -4643,7 +4658,29 @@ function importTableFromJson(){
   var raw=(g('ImportTableInput').value||'').trim();
   var errEl=g('ImportTableError');
   errEl.style.display='none';
-  if(!raw){ errEl.textContent='请先粘贴审查表JSON内容'; errEl.style.display='block'; return; }
+  if(!raw){ errEl.textContent='请先粘贴JSON内容'; errEl.style.display='block'; return; }
+
+  if(D._importMode==='scan'){
+    /* P1 test: parse as SCAN_RESULT */
+    try{
+      parseScanResult(raw);
+      if(!D.clauses || !D.clauses.length){
+        errEl.textContent='解析失败，未找到clauses数据，请确认格式正确';
+        errEl.style.display='block';
+        return;
+      }
+      hideImportTableDialog();
+      renderRiskList();
+      goPage(1);
+      if(typeof Word !== 'undefined') highlightAllClausesInWord();
+    }catch(e){
+      errEl.textContent='解析失败: '+(e.message||e);
+      errEl.style.display='block';
+    }
+    return;
+  }
+
+  /* P2 test: parse as REVIEW_TABLE */
   var tableData=null;
   var rtIdx=raw.indexOf('REVIEW_TABLE:');
   if(rtIdx!==-1){
@@ -4661,7 +4698,7 @@ function importTableFromJson(){
   }
   var reviewTable=(tableData&&tableData.review_table)||[];
   if(!reviewTable.length){
-    errEl.textContent='解析失败，请确认格式正确';
+    errEl.textContent='解析失败，请确认格式正确（需包含review_table字段）';
     errEl.style.display='block';
     return;
   }
@@ -4675,8 +4712,8 @@ function importTableFromJson(){
 <!-- 导入审查表弹窗 -->
 <div id="ImportTableModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:10px;padding:28px;width:620px;max-width:92vw;display:flex;flex-direction:column;gap:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-    <div style="font-size:15px;font-weight:600;color:var(--ink);">导入审查表</div>
-    <div style="font-size:12px;color:var(--ink-muted);">将Dify输出的审查表JSON粘贴到下方，支持两种格式：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">REVIEW_TABLE: {"review_table":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"review_table":[...]}</code></div>
+    <div id="ImportTableTitle" style="font-size:15px;font-weight:600;color:var(--ink);">导入审查表</div>
+    <div id="ImportTableHint" style="font-size:12px;color:var(--ink-muted);">将Dify输出的审查表JSON粘贴到下方，支持两种格式：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">REVIEW_TABLE: {"review_table":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"review_table":[...]}</code></div>
     <textarea id="ImportTableInput" style="width:100%;height:200px;border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:11px;resize:vertical;outline:none;line-height:1.5;" placeholder="在此粘贴审查表JSON..."></textarea>
     <div id="ImportTableError" style="display:none;color:#dc2626;font-size:12px;padding:8px 12px;background:#fef2f2;border-radius:6px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">

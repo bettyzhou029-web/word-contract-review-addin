@@ -1212,6 +1212,8 @@ function renderScan(){
 
 function highlightAllClausesInWord(){
   if(typeof Word === 'undefined') return;
+  if(D._highlighting){ dbgLog('highlightAllClausesInWord already running, skip', 'warn'); return; }
+  D._highlighting = true;
   D._p2entered = false;
   var colorMap = {high:'Pink', mid:'Yellow', low:'Turquoise'};
   var clausesToHL = D.clauses.filter(function(c){ return c.original && c.original.trim(); });
@@ -1270,7 +1272,7 @@ function highlightAllClausesInWord(){
     });
   }
 
-  processOne(0);
+  processOne(0).then(function(){ D._highlighting = false; });
 }
 
 function renderRiskList(){
@@ -4667,9 +4669,7 @@ function importTableFromJson(){
         return;
       }
       hideImportTableDialog();
-      renderRiskList();
-      goPage(1);
-      if(typeof Word !== 'undefined') highlightAllClausesInWord();
+      /* parseScanResult already calls renderScan() which schedules highlightAllClausesInWord */
     }catch(e){
       errEl.textContent='解析失败: '+(e.message||e);
       errEl.style.display='block';

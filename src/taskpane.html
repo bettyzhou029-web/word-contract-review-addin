@@ -526,6 +526,7 @@ main{display:flex;flex-direction:column;overflow:hidden;}
               <button onclick="adjRightFont(-1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:10px;line-height:1;">A-</button>
               <button onclick="adjRightFont(1)" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:12px;line-height:1;">A+</button>
               <button onclick="dbgToggle()" title="Toggle debug console" style="width:20px;height:20px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:10px;line-height:1;">🔧</button>
+              <button onclick="highlightAllClausesInWord()" title="批量高亮所有条款（实验性，可能影响点击联动）" style="height:20px;padding:0 6px;border:1px solid var(--border);border-radius:3px;background:var(--paper);cursor:pointer;font-size:10px;line-height:1;white-space:nowrap;">⚡全部高亮</button>
             </div>
             <div class="scan-count" id="ScanCount">0 items</div>
           </div>
@@ -1207,7 +1208,10 @@ function renderScan(){
   updateScanProg();
   setTimeout(positionCards, 80);
   /* Auto-highlight all clauses in Word document */
-  setTimeout(highlightAllClausesInWord, 300);
+  /* Disabled: batch highlight on P1 entry causes "A.VGa is not a function" errors
+     that poison Word's request queue and break click-to-navigate (selectRisk).
+     Click-to-navigate per card is more valuable than auto-highlight-all. */
+  // setTimeout(highlightAllClausesInWord, 300);
 }
 
 function highlightAllClausesInWord(){

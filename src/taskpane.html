@@ -964,40 +964,9 @@ function readFromWord(){
       btn.disabled = false;
       g('GO').disabled = !key();
       toast('文档读取成功');
-
-      /* Also export docx binary for XML-level revision processing */
-      Office.context.document.getFileAsync(
-        Office.FileType.Compressed,
-        { sliceSize: 65536 },
-        function(result){
-          if(result.status !== Office.AsyncResultStatus.Succeeded){ return; }
-          var file = result.value;
-          var slices = [], sliceCount = file.sliceCount, received = 0;
-          function getSlice(i){
-            file.getSliceAsync(i, function(sr){
-              if(sr.status !== Office.AsyncResultStatus.Succeeded){ file.closeAsync(); return; }
-              slices[i] = sr.value.data;
-              received++;
-              if(received === sliceCount){
-                file.closeAsync();
-                /* Combine all slices into one Uint8Array */
-                var total = slices.reduce(function(s,sl){ return s + sl.length; }, 0);
-                var combined = new Uint8Array(total);
-                var offset = 0;
-                slices.forEach(function(sl){
-                  combined.set(sl, offset);
-                  offset += sl.length;
-                });
-                D.docxBytes = combined;
-                dbgLog('docx exported: '+total+' bytes', 'ok');
-              } else {
-                getSlice(i + 1);
-              }
-            });
-          }
-          getSlice(0);
-        }
-      );
+      /* docx binary export moved to exportDocxBytes() — called lazily before
+         revision processing, to avoid conflicting with Word.run search/highlight
+         operations (getFileAsync was causing "A.VGa is not a function" errors). */
     });
   }).catch(function(e){
     var msg = e.message || String(e);
@@ -3877,6 +3846,57 @@ function makeTrackChangeNodes(ops, revIdStart, author, date){
 }
 
 /* Main function: process docx bytes, return revised docx bytes as Uint8Array */
+/* Export current docx as Uint8Array via getFileAsync — called lazily
+   (not during readFromWord) to avoid conflicting with Word.run search/highlight
+   operations, which caused "A.VGa is not a function" errors. */
+function exportDocxBytes(){
+  return new Promise(function(resolve, reject){
+    if(typeof Office === 'undefined' || !Office.context || !Office.context.document){
+      reject(new Error('Office context not available'));
+      return;
+    }
+    Office.context.document.getFileAsync(
+      Office.FileType.Compressed,
+      { sliceSize: 65536 },
+      function(result){
+        if(result.status !== Office.AsyncResultStatus.Succeeded){
+          reject(new Error('getFileAsync failed: '+JSON.stringify(result.error)));
+          return;
+        }
+        var file = result.value;
+        var slices = [], sliceCount = file.sliceCount, received = 0;
+        function getSlice(i){
+          file.getSliceAsync(i, function(sr){
+            if(sr.status !== Office.AsyncResultStatus.Succeeded){
+              file.closeAsync();
+              reject(new Error('getSliceAsync failed: '+JSON.stringify(sr.error)));
+              return;
+            }
+            slices[i] = sr.value.data;
+            received++;
+            if(received === sliceCount){
+              file.closeAsync();
+              var total = slices.reduce(function(s,sl){ return s + sl.length; }, 0);
+              var combined = new Uint8Array(total);
+              var offset = 0;
+              slices.forEach(function(sl){
+                combined.set(sl, offset);
+                offset += sl.length;
+              });
+              D.docxBytes = combined;
+              dbgLog('docx exported: '+total+' bytes', 'ok');
+              resolve(combined);
+            } else {
+              getSlice(i + 1);
+            }
+          });
+        }
+        getSlice(0);
+      }
+    );
+  });
+}
+
 function processDocxRevisions(docxBytes, reviewItems){
   return JSZip.loadAsync(docxBytes).then(function(zip){
     return zip.file('word/document.xml').async('string').then(function(xmlStr){
@@ -3951,7 +3971,6 @@ function processDocxRevisions(docxBytes, reviewItems){
 
 /* Download revised docx (Word Online / any browser) */
 function downloadRevisedDocx(){
-  if(!D.docxBytes){ toast('请先点击"从Word读取"'); return; }
   if(!D.reviewTable||!D.reviewTable.length){ toast('没有审查结果'); return; }
 
   var acceptedItems = D.reviewTable.filter(function(item,i){
@@ -3962,7 +3981,11 @@ function downloadRevisedDocx(){
   var btn = g('BtnDownloadRevised');
   if(btn){ btn.disabled=true; btn.textContent='⏳ 处理中...'; }
 
-  processDocxRevisions(D.docxBytes, acceptedItems).then(function(bytes){
+  var getBytes = D.docxBytes ? Promise.resolve(D.docxBytes) : exportDocxBytes();
+
+  getBytes.then(function(docxBytes){
+    return processDocxRevisions(docxBytes, acceptedItems);
+  }).then(function(bytes){
     var blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
@@ -3983,7 +4006,6 @@ function downloadRevisedDocx(){
 
 /* Inject revised docx back into Word (local Word only) */
 function injectRevisedDocx(){
-  if(!D.docxBytes){ toast('请先点击"从Word读取"'); return; }
   if(!D.reviewTable||!D.reviewTable.length){ toast('没有审查结果'); return; }
 
   var acceptedItems = D.reviewTable.filter(function(item){
@@ -3994,7 +4016,11 @@ function injectRevisedDocx(){
   var btn = g('BtnInjectRevised');
   if(btn){ btn.disabled=true; btn.textContent='⏳ 处理中...'; }
 
-  processDocxRevisions(D.docxBytes, acceptedItems).then(function(bytes){
+  var getBytes = D.docxBytes ? Promise.resolve(D.docxBytes) : exportDocxBytes();
+
+  getBytes.then(function(docxBytes){
+    return processDocxRevisions(docxBytes, acceptedItems);
+  }).then(function(bytes){
     /* Convert Uint8Array to base64 */
     var binary='';
     bytes.forEach(function(b){ binary+=String.fromCharCode(b); });

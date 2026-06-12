@@ -1252,14 +1252,18 @@ function highlightAllClausesInWord(){
       return context.sync().then(function(){
         if(D._p2entered) return;
         searches.forEach(function(s){
-          if(s.r1.items.length > 0){
-            s.r1.items[0].font.highlightColor = s.color;
-            dbgLog('['+s.origIdx+'] OK(full): "'+s.snip.slice(0,25)+'..." color='+s.color, 'ok');
-          } else if(s.r2.items.length > 0){
-            s.r2.items[0].font.highlightColor = s.color;
-            dbgLog('['+s.origIdx+'] OK(short): "'+s.shortSnip.slice(0,25)+'..." color='+s.color, 'ok');
-          } else {
-            dbgLog('['+s.origIdx+'] NOT FOUND', 'warn');
+          try{
+            if(s.r1.items.length > 0){
+              s.r1.items[0].font.highlightColor = s.color;
+              dbgLog('['+s.origIdx+'] OK(full): "'+s.snip.slice(0,25)+'..." color='+s.color, 'ok');
+            } else if(s.r2.items.length > 0){
+              s.r2.items[0].font.highlightColor = s.color;
+              dbgLog('['+s.origIdx+'] OK(short): "'+s.shortSnip.slice(0,25)+'..." color='+s.color, 'ok');
+            } else {
+              dbgLog('['+s.origIdx+'] NOT FOUND', 'warn');
+            }
+          }catch(e){
+            dbgLog('['+s.origIdx+'] apply err: '+(e.message||e), 'err');
           }
         });
         return context.sync();
@@ -1940,7 +1944,7 @@ function selectRisk(idx){
           });
         });
       });
-    }).catch(function(){});
+    }).catch(function(e){ dbgLog('[selectRisk] err: '+(e.message||e), 'err'); });
   }
 
   /* Expand active card, collapse others */
@@ -4143,28 +4147,32 @@ function dbgCopy(){
   var text = Array.from(body.querySelectorAll('.dbg-line')).map(function(l){ return l.textContent; }).join('\n');
   if(!text){ toast('日志为空'); return; }
 
-  function fallbackCopy(){
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    ta.style.top = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    var ok = false;
-    try{ ok = document.execCommand('copy'); }catch(e){}
-    document.body.removeChild(ta);
-    if(ok) toast('Debug log copied ✓');
-    else toast('复制失败，请手动选中文本');
-  }
+  /* Use execCommand directly — clipboard API can hang silently in Office iframe */
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '0';
+  ta.readOnly = true;
+  document.body.appendChild(ta);
+  ta.contentEditable = true;
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  var ok = false;
+  try{ ok = document.execCommand('copy'); }catch(e){}
+  document.body.removeChild(ta);
 
-  if(navigator.clipboard && navigator.clipboard.writeText){
+  if(ok){
+    toast('Debug log copied ✓ ('+text.length+' chars)');
+  } else if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).then(function(){
       toast('Debug log copied ✓');
-    }).catch(fallbackCopy);
+    }).catch(function(){
+      toast('复制失败 - 请长按日志区域手动选中');
+    });
   } else {
-    fallbackCopy();
+    toast('复制失败 - 请长按日志区域手动选中');
   }
 }
 function dbgClear(){

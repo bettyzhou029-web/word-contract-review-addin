@@ -1904,8 +1904,8 @@ function selectRisk(idx){
         r1.load('items');
         return context.sync().then(function(){
           if(r1.items.length > 0){
-            r1.items[0].font.highlightColor = color;
             r1.items[0].select();
+            dbgLog('[selectRisk] select OK (full)', 'ok');
             return context.sync();
           }
           /* Fallback */
@@ -1913,10 +1913,11 @@ function selectRisk(idx){
           r2.load('items');
           return context.sync().then(function(){
             if(r2.items.length > 0){
-              r2.items[0].font.highlightColor = color;
               r2.items[0].select();
+              dbgLog('[selectRisk] select OK (fallback)', 'ok');
               return context.sync();
             }
+            dbgLog('[selectRisk] NOT FOUND', 'warn');
           });
         });
       });

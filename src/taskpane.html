@@ -491,8 +491,8 @@ main{display:flex;flex-direction:column;overflow:hidden;}
       <span style="font-size:11px;color:var(--ink-muted);">或</span>
       <div style="flex:1;height:1px;background:var(--border);"></div>
     </div>
-    <button class="btn-sec" onclick="showImportTableDialog('scan')" style="width:100%;margin-top:8px;font-size:12px;color:var(--ink-muted);">⬆ 导入SCAN_RESULT（测试P1）</button>
-    <button class="btn-sec" onclick="showImportTableDialog('table')" style="width:100%;margin-top:4px;font-size:12px;color:var(--ink-muted);">⬆ 导入REVIEW_TABLE（测试P2）</button>
+    <button class="btn-sec" onclick="showImportTableDialog('scan')" style="width:100%;margin-top:8px;font-size:12px;color:var(--ink-muted);">⬆ 导入SCAN_RESULT</button>
+    <button class="btn-sec" onclick="showImportTableDialog('table')" style="width:100%;margin-top:4px;font-size:12px;color:var(--ink-muted);">⬆ 导入REVIEW_TABLE</button>
   </aside>
 
   <main id="Main">
@@ -1217,61 +1217,60 @@ function highlightAllClausesInWord(){
   var clausesToHL = D.clauses.filter(function(c){ return c.original && c.original.trim(); });
   dbgLog('P1 batch highlight: '+D.clauses.length+' clauses ('+clausesToHL.length+' with original)', 'info');
 
-  /* Single Word.run — search all clauses, then apply highlights in one sync */
-  Word.run(function(context){
-    var paras = context.document.body.paragraphs;
-    paras.load('items');
-    return context.sync().then(function(){
-      if(D._p2entered) return;
+  /* Process one clause at a time — fully sequential.
+     Batching multiple search()+sync() in one Word.run causes
+     "A.VGa is not a function" in Word Online. */
+  function processOne(i){
+    if(i >= clausesToHL.length) return Promise.resolve();
+    if(D._p2entered) return Promise.resolve();
+    var c = clausesToHL[i];
+    var origIdx = D.clauses.indexOf(c);
+    var color = colorMap[c.level] || 'Yellow';
+    var fullSnip = c.original.replace(/[\u201c\u201d\u2018\u2019\u2013\u2014\u00a0]/g, function(ch){
+      return (ch==='\u201c'||ch==='\u201d')?'"':(ch==='\u2018'||ch==='\u2019')?"'":(ch==='\u2013'||ch==='\u2014')?'-':' ';
+    }).replace(/\s+/g,' ').trim();
+    var shortSnip = safeSnip(c.original, 60);
+    var snip = fullSnip.slice(0,500);
 
-      /* Build all search operations */
-      var searches = clausesToHL.map(function(c, idx){
-        var origIdx = D.clauses.indexOf(c);
-        var color = colorMap[c.level] || 'Yellow';
-        var fullSnip = c.original.replace(/[\u201c\u201d\u2018\u2019\u2013\u2014\u00a0]/g, function(ch){
-          return (ch==='\u201c'||ch==='\u201d')?'"':(ch==='\u2018'||ch==='\u2019')?"'":(ch==='\u2013'||ch==='\u2014')?'-':' ';
-        }).replace(/\s+/g,' ').trim();
-        var shortSnip = safeSnip(c.original, 60);
-
+    return Word.run(function(context){
+      var paras = context.document.body.paragraphs;
+      paras.load('items');
+      return context.sync().then(function(){
         var scope = findClauseScope(paras.items, c.clause_ref||'', c.original);
         dbgLog('['+origIdx+'] ref="'+(c.clause_ref||'').slice(0,25)+'" scope='+(scope?scope.scopeStart+'-'+scope.scopeEnd:'null'), scope?'info':'warn');
         var si = scope ? scope.scopeStart : 0;
         var ei = scope ? scope.scopeEnd : paras.items.length-1;
         var scopedRange = paras.items[si].getRange('Start').expandTo(paras.items[ei].getRange('End'));
 
-        /* Try full snip first */
-        var snip = fullSnip.slice(0,500);
         var r1 = scopedRange.search(snip, {matchCase:false, matchWholeWord:false});
         r1.load('items');
-
-        /* Also prepare fallback */
-        var r2 = scopedRange.search(shortSnip, {matchCase:false, matchWholeWord:false});
-        r2.load('items');
-
-        return {origIdx:origIdx, color:color, snip:snip, shortSnip:shortSnip, r1:r1, r2:r2};
-      });
-
-      return context.sync().then(function(){
-        if(D._p2entered) return;
-        searches.forEach(function(s){
-          try{
-            if(s.r1.items.length > 0){
-              s.r1.items[0].font.highlightColor = s.color;
-              dbgLog('['+s.origIdx+'] OK(full): "'+s.snip.slice(0,25)+'..." color='+s.color, 'ok');
-            } else if(s.r2.items.length > 0){
-              s.r2.items[0].font.highlightColor = s.color;
-              dbgLog('['+s.origIdx+'] OK(short): "'+s.shortSnip.slice(0,25)+'..." color='+s.color, 'ok');
-            } else {
-              dbgLog('['+s.origIdx+'] NOT FOUND', 'warn');
-            }
-          }catch(e){
-            dbgLog('['+s.origIdx+'] apply err: '+(e.message||e), 'err');
+        return context.sync().then(function(){
+          if(r1.items.length > 0){
+            r1.items[0].font.highlightColor = color;
+            dbgLog('['+origIdx+'] OK(full): "'+snip.slice(0,25)+'..." color='+color, 'ok');
+            return context.sync();
           }
+          if(!shortSnip) { dbgLog('['+origIdx+'] NOT FOUND', 'warn'); return; }
+          var r2 = scopedRange.search(shortSnip, {matchCase:false, matchWholeWord:false});
+          r2.load('items');
+          return context.sync().then(function(){
+            if(r2.items.length > 0){
+              r2.items[0].font.highlightColor = color;
+              dbgLog('['+origIdx+'] OK(short): "'+shortSnip.slice(0,25)+'..." color='+color, 'ok');
+              return context.sync();
+            }
+            dbgLog('['+origIdx+'] NOT FOUND', 'warn');
+          });
         });
-        return context.sync();
       });
+    }).catch(function(e){
+      dbgLog('['+origIdx+'] err: '+(e.message||e), 'err');
+    }).then(function(){
+      return processOne(i+1);
     });
-  }).catch(function(e){ dbgLog('Highlight batch error: '+(e.message||e), 'err'); });
+  }
+
+  processOne(0);
 }
 
 function renderRiskList(){
@@ -4149,21 +4148,18 @@ function dbgCopy(){
   var text = Array.from(body.querySelectorAll('.dbg-line')).map(function(l){ return l.textContent; }).join('\n');
   if(!text){ toast('日志为空'); return; }
 
-  /* Use execCommand directly — clipboard API can hang silently in Office iframe */
-  var ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  ta.style.top = '0';
-  ta.readOnly = true;
-  document.body.appendChild(ta);
-  ta.contentEditable = true;
-  ta.focus();
-  ta.select();
-  ta.setSelectionRange(0, text.length);
+  /* Select the visible DbgBody content via Range/Selection, then execCommand copy.
+     More reliable in Office iframe than a detached hidden textarea. */
   var ok = false;
-  try{ ok = document.execCommand('copy'); }catch(e){}
-  document.body.removeChild(ta);
+  try{
+    var range = document.createRange();
+    range.selectNodeContents(body);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    ok = document.execCommand('copy');
+    sel.removeAllRanges();
+  }catch(e){}
 
   if(ok){
     toast('Debug log copied ✓ ('+text.length+' chars)');
@@ -4171,10 +4167,10 @@ function dbgCopy(){
     navigator.clipboard.writeText(text).then(function(){
       toast('Debug log copied ✓');
     }).catch(function(){
-      toast('复制失败 - 请长按日志区域手动选中');
+      toast('复制失败 - 请手动选中日志区域后 Ctrl+C');
     });
   } else {
-    toast('复制失败 - 请长按日志区域手动选中');
+    toast('复制失败 - 请手动选中日志区域后 Ctrl+C');
   }
 }
 function dbgClear(){
@@ -4643,10 +4639,10 @@ function showImportTableDialog(mode){
     var titleEl = g('ImportTableTitle');
     var hintEl = g('ImportTableHint');
     if(D._importMode==='scan'){
-      if(titleEl) titleEl.textContent='导入SCAN_RESULT（测试P1）';
+      if(titleEl) titleEl.textContent='导入SCAN_RESULT';
       if(hintEl) hintEl.innerHTML='将Dify P1输出的JSON粘贴到下方，支持：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">SCAN_RESULT: {"clauses":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"clauses":[...]}</code>';
     } else {
-      if(titleEl) titleEl.textContent='导入REVIEW_TABLE（测试P2）';
+      if(titleEl) titleEl.textContent='导入REVIEW_TABLE';
       if(hintEl) hintEl.innerHTML='将Dify P2输出的JSON粘贴到下方，支持：<br><code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">REVIEW_TABLE: {"review_table":[...]}</code> 或直接粘贴 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px;">{"review_table":[...]}</code>';
     }
   }
